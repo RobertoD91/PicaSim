@@ -125,3 +125,39 @@ jobs:
           name: picasim-universal
           path: dist-universal/
           retention-days: 30
+
+  notarize-universal:
+    needs: merge-universal
+    if: ${{ secrets.MACOS_CERT_P12 != '' && secrets.MACOS_CERT_PASSWORD != '' && secrets.MACOS_IDENTITY != '' && secrets.MACOS_NOTARY_API_KEY != '' && secrets.MACOS_NOTARY_API_KEY_ID != '' && secrets.MACOS_NOTARY_API_ISSUER != '' }}
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download universal artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: picasim-universal
+          path: dist-universal
+
+      - name: Import signing certificate
+        uses: apple-actions/import-codesign-certs@v2
+        with:
+          p12-file-base64: ${{ secrets.MACOS_CERT_P12 }}
+          p12-password: ${{ secrets.MACOS_CERT_PASSWORD }}
+
+      - name: Resign universal app
+        run: |
+          codesign --force --deep --options runtime --timestamp --sign "${{ secrets.MACOS_IDENTITY }}" dist-universal/PicaSim.app
+          codesign --verify --deep --strict --verbose=2 dist-universal/PicaSim.app
+
+      - name: Notarize universal DMG
+        uses: apple-actions/notarize-app@v1
+        with:
+          app-path: dist-universal/PicaSim-*.dmg
+          api-key: ${{ secrets.MACOS_NOTARY_API_KEY }}
+          api-key-id: ${{ secrets.MACOS_NOTARY_API_KEY_ID }}
+          api-issuer: ${{ secrets.MACOS_NOTARY_API_ISSUER }}
+
+      - name: Staple universal DMG
+        run: |
+          xcrun stapler staple dist-universal/PicaSim-*.dmg
