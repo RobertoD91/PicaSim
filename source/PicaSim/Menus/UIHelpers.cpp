@@ -128,8 +128,8 @@ float GetFontScale()
 
     float scale;
 
-#if defined(PICASIM_MOBILE)
-    // DPI-aware formula for mobile:
+#if defined(PICASIM_ANDROID)
+    // DPI-aware formula for Android:
     //   scale = sqrt(targetFontDp * dpiScale / baseFontSize)
     //
     // This accounts for double-scaling: font loaded at baseFontSize*scale,
@@ -166,7 +166,7 @@ float GetFontScale()
            Platform::GetScreenDPI(), dpiScale, diagonal,
            deviceClass, targetFontDp, scale, w, h);
 #else
-    // Desktop: purely pixel-based (unchanged behaviour)
+    // Desktop and iOS: pixel-based scaling (height / 720)
     scale = h / 720.0f;
     if (scale < 1.0f) scale = 1.0f;
 #endif

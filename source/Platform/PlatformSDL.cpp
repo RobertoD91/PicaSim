@@ -135,8 +135,8 @@ float GetScreenDPI()
     {
         return ddpi;
     }
-#if defined(PICASIM_ANDROID) || defined(__ANDROID__)
-    return 160.0f; // Android baseline DPI
+#if defined(PICASIM_ANDROID) || defined(__ANDROID__) || defined(PICASIM_IOS)
+    return 160.0f; // Mobile baseline DPI
 #else
     return 96.0f; // Desktop default DPI
 #endif
@@ -158,10 +158,10 @@ float GetSurfaceDiagonalInches()
 float GetDisplayScale()
 {
     // Calculate display scale based on DPI
-    // Standard DPI is 96 on Windows, 72 on macOS, 160 on Android
+    // Standard DPI is 96 on Windows, 72 on macOS, 160 on mobile (Android/iOS)
 #ifdef _WIN32
     const float baseDPI = 96.0f;
-#elif defined(PICASIM_ANDROID) || defined(__ANDROID__)
+#elif defined(PICASIM_ANDROID) || defined(__ANDROID__) || defined(PICASIM_IOS)
     const float baseDPI = 160.0f;
 #else
     const float baseDPI = 72.0f;

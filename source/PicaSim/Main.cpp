@@ -33,6 +33,10 @@
 #include <unistd.h>  // _exit
 #endif
 
+#ifdef PICASIM_IOS
+#include <unistd.h>  // chdir
+#endif
+
 //======================================================================================================================
 // Attempt to lock to a 60 frames per second
 #define MS_PER_FRAME (1000 / 60)
@@ -169,6 +173,18 @@ int main(int argc, char* argv[])
         return 1;
     }
     TRACE_FILE_IF(ONCE_1) TRACE("Asset extraction complete");
+#endif
+
+#ifdef PICASIM_IOS
+    // On iOS the app bundle contains data/ alongside the executable.
+    // chdir there so all relative paths (SystemSettings/, SystemData/, etc.) resolve correctly.
+    {
+        std::string dataDir = FileSystem::GetBasePath() + "data";
+        if (chdir(dataDir.c_str()) == 0)
+            TRACE_FILE_IF(ONCE_1) TRACE("iOS: chdir to %s", dataDir.c_str());
+        else
+            TRACE_FILE_IF(ONCE_1) TRACE("iOS: chdir FAILED for %s", dataDir.c_str());
+    }
 #endif
 
     // Reset stale static state for Android relaunch safety.
