@@ -511,7 +511,7 @@ endif()
 # --------------------------------------------------------------------------
 # Install rules (for release packaging)
 # --------------------------------------------------------------------------
-if(NOT ANDROID)
+if(NOT ANDROID AND NOT IOS)
     # Always install to dist/<version_dir> (e.g., dist/PicaSim-1_0_0)
     set(CMAKE_INSTALL_PREFIX "${CMAKE_SOURCE_DIR}/dist/${PICASIM_VERSION_DIR}" CACHE PATH "" FORCE)
 

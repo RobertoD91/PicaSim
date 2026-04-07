@@ -5,10 +5,16 @@
 #include "../../Platform/S3ECompat.h"
 #include "../../Platform/Input.h"
 #include "../../Platform/VRMenuRenderer.h"
-#include "Platform.h"
+#include "../../Platform/Platform.h"
 #include <string>
 #include <vector>
-#include <filesystem>
+
+#if !defined(PS_PLATFORM_IOS)
+    #include <filesystem>
+#else
+    #include <dirent.h>
+    #include <sys/stat.h>
+#endif
 
 #include "ScrollHelper.h"
 #include "imgui.h"
@@ -233,6 +239,33 @@ FileMenu::~FileMenu()
 void FileMenu::LoadFilesFromDirectory(const char* path, bool isUserPath, bool useTitleFromFile)
 {
     TRACE_FILE_IF(ONCE_1) TRACE("FileMenu::LoadFilesFromDirectory: path='%s' isUserPath=%d", path, isUserPath);
+
+#if defined(PS_PLATFORM_IOS)
+    // iOS 12: resolve relative paths to bundle and use dirent
+    std::string resolvedPath = path;
+    if (path[0] != '/' && path[0] != '.')
+        resolvedPath = FileSystem::GetBasePath() + "/data/" + path;
+
+    struct stat st;
+    if (stat(resolvedPath.c_str(), &st) != 0 || !S_ISDIR(st.st_mode))
+    {
+        TRACE_FILE_IF(ONCE_1) TRACE("FileMenu::LoadFilesFromDirectory: failed to open directory '%s'", resolvedPath.c_str());
+        return;
+    }
+
+    DIR* dir = opendir(resolvedPath.c_str());
+    if (!dir)
+        return;
+
+    struct dirent* dirEntry;
+    while ((dirEntry = readdir(dir)) != nullptr)
+    {
+        if (dirEntry->d_type != DT_REG)
+            continue;
+
+        std::string filename = dirEntry->d_name;
+        std::string fullPath = resolvedPath + "/" + filename;
+#else
     namespace fs = std::filesystem;
 
     std::error_code ec;
@@ -249,6 +282,7 @@ void FileMenu::LoadFilesFromDirectory(const char* path, bool isUserPath, bool us
 
         std::string filename = entry.path().filename().string();
         std::string fullPath = entry.path().string();
+#endif
 
         // Apply include callback filter if provided
         if (mIncludeCallback && !mIncludeCallback->GetInclude(fullPath.c_str()))
@@ -327,6 +361,9 @@ void FileMenu::LoadFilesFromDirectory(const char* path, bool isUserPath, bool us
 
         mItems.push_back(item);
     }
+#if defined(PS_PLATFORM_IOS)
+    closedir(dir);
+#endif
 }
 
 //======================================================================================================================
@@ -751,7 +788,11 @@ void FileMenuDelete(
     if (!selectedPath.empty())
     {
         TRACE_FILE_IF(ONCE_1) TRACE("Deleting %s", selectedPath.c_str());
+#if defined(PS_PLATFORM_IOS)
+        ::remove(selectedPath.c_str());
+#else
         std::filesystem::remove(selectedPath);
+#endif
     }
 }
 

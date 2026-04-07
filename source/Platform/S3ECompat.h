@@ -14,7 +14,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
-#ifndef PICASIM_ANDROID
+#if !defined(PICASIM_ANDROID) && !defined(PICASIM_IOS)
 #include <filesystem>
 #endif
 #include "imgui.h"

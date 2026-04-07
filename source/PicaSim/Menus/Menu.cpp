@@ -5,7 +5,13 @@
 #include "../GameSettings.h"
 #include "../PicaJoystick.h"
 #include "../../Platform/S3ECompat.h"
-#include <filesystem>
+
+#if !defined(PS_PLATFORM_IOS)
+    #include <filesystem>
+#else
+    #include <dirent.h>
+    #include <sys/stat.h>
+#endif
 
 typedef std::map<std::string, Texture*> TextureMap;
 TextureMap* sTextureMap = 0;
@@ -13,10 +19,42 @@ TextureMap* sTextureMap = 0;
 //======================================================================================================================
 void CacheThumbnailsFromDir(const char* path, bool convertTo16Bit, LoadingScreen* loadingScreen, const char* txt)
 {
-    namespace fs = std::filesystem;
-
     if (loadingScreen)
         loadingScreen->Update(txt);
+
+#if defined(PS_PLATFORM_IOS)
+    // iOS 12 compatibility: dirent-based directory scanning (std::filesystem unavailable)
+    struct stat st;
+    if (stat(path, &st) != 0 || !S_ISDIR(st.st_mode))
+        return;
+
+    DIR* dir = opendir(path);
+    if (!dir)
+        return;
+
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != nullptr)
+    {
+        if (loadingScreen) loadingScreen->Update(0);
+
+        if (entry->d_type != DT_REG)
+            continue;
+
+        std::string filename = entry->d_name;
+        size_t len = filename.length();
+        if (len > 4)
+        {
+            std::string ext = filename.substr(len - 4);
+            if (ext == ".jpg" || ext == ".png" || ext == ".JPG" || ext == ".PNG")
+            {
+                std::string fullPath = std::string(path) + "/" + filename;
+                GetCachedTexture(fullPath, convertTo16Bit);
+            }
+        }
+    }
+    closedir(dir);
+#else
+    namespace fs = std::filesystem;
 
     std::error_code ec;
     if (!fs::exists(path, ec) || !fs::is_directory(path, ec))
@@ -41,6 +79,7 @@ void CacheThumbnailsFromDir(const char* path, bool convertTo16Bit, LoadingScreen
             }
         }
     }
+#endif
 }
 
 //======================================================================================================================
