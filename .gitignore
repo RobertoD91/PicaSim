@@ -54,3 +54,5 @@ android/local.properties
 *.aab
 android/logcat.txt
 android/keystore.properties
+
+.DS_Store

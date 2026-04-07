@@ -46,6 +46,16 @@ endif()
 
 message(STATUS "Building PicaSim for platform: ${PICASIM_PLATFORM}")
 
+# macOS: GLCompat.h must be pre-included only on our targets (not third-party).
+# See target_compile_options calls below for Framework, Platform, Heightfield, PicaSim.
+if(APPLE AND NOT IOS)
+    set(PICASIM_MACOS_COMPILE_OPTIONS
+        -include "${CMAKE_SOURCE_DIR}/source/Platform/GLCompat.h"
+        -Wno-deprecated-declarations
+    )
+    add_compile_definitions(GL_SILENCE_DEPRECATION)
+endif()
+
 # Compile definitions matching original Marmalade build
 add_compile_definitions(
     BT_NO_PROFILE          # Disable Bullet physics profiling
@@ -76,6 +86,23 @@ if(ANDROID)
     set(SDL_STATIC OFF CACHE BOOL "" FORCE)
     set(LIBTYPE "SHARED" CACHE STRING "" FORCE)
     set(ALSOFT_BACKEND_OPENSL ON CACHE BOOL "" FORCE)
+elseif(IOS)
+    # Force VR off on iOS (OpenXR not available)
+    set(PICASIM_ENABLE_VR OFF CACHE BOOL "" FORCE)
+
+    # iOS requires static libraries (dynamic linking needs framework embedding)
+    set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+    set(SDL_STATIC ON CACHE BOOL "" FORCE)
+    set(LIBTYPE "STATIC" CACHE STRING "" FORCE)
+
+    # Xcode code signing and dSYM (applied globally; overridden per-target below)
+    set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "Apple Development" CACHE STRING "" FORCE)
+    set(CMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "486X3EYM77" CACHE STRING "" FORCE)
+    set(CMAKE_XCODE_ATTRIBUTE_DEBUG_INFORMATION_FORMAT "dwarf-with-dsym" CACHE STRING "" FORCE)
+    set(CMAKE_XCODE_ATTRIBUTE_GCC_GENERATE_DEBUGGING_SYMBOLS "YES" CACHE STRING "" FORCE)
+    set(CMAKE_XCODE_ATTRIBUTE_COPY_PHASE_STRIP "NO" CACHE STRING "" FORCE)
+    set(CMAKE_XCODE_ATTRIBUTE_STRIP_INSTALLED_PRODUCT "NO" CACHE STRING "" FORCE)
+    set(CMAKE_XCODE_ATTRIBUTE_DEPLOYMENT_POSTPROCESSING "NO" CACHE STRING "" FORCE)
 else()
     # Desktop: static libraries (no DLL management)
     set(SDL_SHARED OFF CACHE BOOL "" FORCE)
@@ -139,21 +166,29 @@ target_include_directories(imgui_lib PUBLIC
 if(ANDROID)
     target_compile_definitions(imgui_lib PUBLIC IMGUI_IMPL_OPENGL_ES2)
     target_link_libraries(imgui_lib PUBLIC GLESv2 ${SDL2_LIB})
+elseif(IOS)
+    target_compile_definitions(imgui_lib PUBLIC IMGUI_IMPL_OPENGL_ES2)
+    # OpenGLES framework linked via PicaSim target; SDL2 provides window/context
+    target_link_libraries(imgui_lib PUBLIC ${SDL2_LIB})
 else()
     target_link_libraries(imgui_lib PUBLIC ${SDL2_LIB})
 endif()
 add_library(imgui::imgui ALIAS imgui_lib)
 
 # --- Desktop-only packages (vcpkg) ---
-if(NOT ANDROID)
+if(NOT ANDROID AND NOT IOS)
     find_package(OpenGL REQUIRED)
 
     if(WIN32)
         find_package(glad CONFIG REQUIRED)
     endif()
 
-    # VR Support (optional, requires OpenXR)
-    option(PICASIM_ENABLE_VR "Enable VR headset support (requires OpenXR)" ON)
+    # VR Support (optional, requires OpenXR — not available on macOS)
+    if(APPLE)
+        set(PICASIM_ENABLE_VR OFF CACHE BOOL "" FORCE)
+    else()
+        option(PICASIM_ENABLE_VR "Enable VR headset support (requires OpenXR)" ON)
+    endif()
     if(PICASIM_ENABLE_VR)
         find_package(OpenXR CONFIG REQUIRED)
         add_compile_definitions(PICASIM_VR_SUPPORT=1)
@@ -221,11 +256,16 @@ target_link_libraries(Framework PUBLIC
 )
 if(ANDROID)
     target_link_libraries(Framework PUBLIC GLESv2)
+elseif(IOS)
+    # OpenGLES framework linked via PicaSim target (iOS frameworks need to be on the app)
 else()
     target_link_libraries(Framework PUBLIC OpenGL::GL)
     if(WIN32)
         target_link_libraries(Framework PUBLIC glad::glad)
     endif()
+endif()
+if(APPLE AND NOT IOS)
+    target_compile_options(Framework PRIVATE ${PICASIM_MACOS_COMPILE_OPTIONS})
 endif()
 
 # --------------------------------------------------------------------------
@@ -236,12 +276,23 @@ file(GLOB HEIGHTFIELD_SOURCES CONFIGURE_DEPENDS source/Heightfield/*.cpp)
 add_library(Heightfield STATIC ${HEIGHTFIELD_SOURCES})
 target_include_directories(Heightfield PUBLIC source/Heightfield)
 target_link_libraries(Heightfield PUBLIC Framework)
+if(APPLE AND NOT IOS)
+    target_compile_options(Heightfield PRIVATE ${PICASIM_MACOS_COMPILE_OPTIONS})
+endif()
 
 # --------------------------------------------------------------------------
 # Platform abstraction layer (new SDL2-based implementation)
 # --------------------------------------------------------------------------
 file(GLOB PLATFORM_SOURCES CONFIGURE_DEPENDS source/Platform/*.cpp)
 file(GLOB PLATFORM_HEADERS CONFIGURE_DEPENDS source/Platform/*.h)
+
+# VR support files depend on OpenXR which is not available on macOS/iOS
+if(APPLE)
+    list(REMOVE_ITEM PLATFORM_SOURCES
+        ${CMAKE_SOURCE_DIR}/source/Platform/OpenXRRuntime.cpp
+        ${CMAKE_SOURCE_DIR}/source/Platform/VRManager.cpp
+    )
+endif()
 
 add_library(Platform STATIC ${PLATFORM_SOURCES} ${PLATFORM_HEADERS})
 target_include_directories(Platform PUBLIC
@@ -258,6 +309,8 @@ target_link_libraries(Platform PUBLIC
 )
 if(ANDROID)
     target_link_libraries(Platform PUBLIC GLESv2 EGL log android)
+elseif(IOS)
+    # OpenGLES and system frameworks linked via PicaSim target
 else()
     target_link_libraries(Platform PUBLIC OpenGL::GL)
     if(WIN32)
@@ -267,6 +320,9 @@ else()
     if(PICASIM_ENABLE_VR)
         target_link_libraries(Platform PUBLIC OpenXR::openxr_loader)
     endif()
+endif()
+if(APPLE AND NOT IOS)
+    target_compile_options(Platform PRIVATE ${PICASIM_MACOS_COMPILE_OPTIONS})
 endif()
 
 # --------------------------------------------------------------------------
@@ -287,6 +343,31 @@ if(ANDROID)
         ${PICASIM_HEADERS}
         ${PICASIM_LANGUAGE_SOURCES}
         ${PICASIM_MENU_SOURCES}
+    )
+elseif(IOS)
+    # iOS: app bundle with embedded resources
+    set(IOS_RESOURCES
+        ${CMAKE_SOURCE_DIR}/ios/LaunchScreen.storyboard
+        ${CMAKE_SOURCE_DIR}/ios/Assets.xcassets
+        ${CMAKE_SOURCE_DIR}/ios/PrivacyInfo.xcprivacy
+        ${CMAKE_SOURCE_DIR}/data
+    )
+    add_executable(PicaSim MACOSX_BUNDLE
+        ${PICASIM_SOURCES}
+        ${PICASIM_HEADERS}
+        ${PICASIM_LANGUAGE_SOURCES}
+        ${PICASIM_MENU_SOURCES}
+        ${IOS_RESOURCES}
+    )
+    set_source_files_properties(
+        ${CMAKE_SOURCE_DIR}/ios/LaunchScreen.storyboard
+        ${CMAKE_SOURCE_DIR}/ios/Assets.xcassets
+        ${CMAKE_SOURCE_DIR}/ios/PrivacyInfo.xcprivacy
+        PROPERTIES MACOSX_PACKAGE_LOCATION Resources
+    )
+    set_source_files_properties(
+        ${CMAKE_SOURCE_DIR}/data
+        PROPERTIES MACOSX_PACKAGE_LOCATION Resources
     )
 else()
     set(WIN32_RESOURCES "")
@@ -317,9 +398,9 @@ target_include_directories(PicaSim PRIVATE
     source/Platform
 )
 
-if(NOT ANDROID)
+if(NOT ANDROID AND NOT IOS)
     # Define SDL_MAIN_HANDLED so SDL doesn't redefine main to SDL_main
-    # On Android, SDL must own main() for proper JNI lifecycle
+    # On Android/iOS, SDL must own main() for proper JNI/UIKit lifecycle
     target_compile_definitions(PicaSim PRIVATE SDL_MAIN_HANDLED)
 endif()
 
@@ -337,11 +418,60 @@ target_link_libraries(PicaSim PRIVATE
 )
 if(ANDROID)
     target_link_libraries(PicaSim PRIVATE SDL2main GLESv2 EGL log android)
+elseif(IOS)
+    target_link_libraries(PicaSim PRIVATE SDL2main)
+    target_link_libraries(PicaSim PRIVATE
+        "-framework Foundation"
+        "-framework UIKit"
+        "-framework OpenGLES"
+        "-framework QuartzCore"
+        "-framework CoreGraphics"
+        "-framework AVFoundation"
+        "-framework AudioToolbox"
+        "-framework CoreAudio"
+        "-framework CoreMotion"
+        "-framework GameController"
+    )
 else()
     target_link_libraries(PicaSim PRIVATE OpenGL::GL)
 endif()
 
+if(APPLE AND NOT IOS)
+    target_compile_options(PicaSim PRIVATE ${PICASIM_MACOS_COMPILE_OPTIONS})
+endif()
+
 target_include_directories(PicaSim PRIVATE ${BULLET_SOURCE_DIR})
+
+# iOS-specific Xcode properties
+if(IOS)
+    set_target_properties(PicaSim PROPERTIES
+        MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/ios/Info.plist.in"
+        MACOSX_BUNDLE_BUNDLE_NAME "PicaSim"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${PICASIM_VERSION}"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PICASIM_VERSION}"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "it.robertodisanto.PicaSim"
+        XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "it.robertodisanto.PicaSim"
+        XCODE_ATTRIBUTE_CODE_SIGN_STYLE "Automatic"
+        XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "486X3EYM77"
+        XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
+        XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "12.0"
+        XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME "AppIcon"
+        XCODE_ATTRIBUTE_INSTALL_PATH "/Applications"
+        XCODE_ATTRIBUTE_SKIP_INSTALL "NO"
+        XCODE_ATTRIBUTE_DEBUG_INFORMATION_FORMAT "dwarf-with-dsym"
+        XCODE_ATTRIBUTE_GCC_GENERATE_DEBUGGING_SYMBOLS "YES"
+        XCODE_ATTRIBUTE_ENABLE_BITCODE "NO"
+        XCODE_ATTRIBUTE_COPY_PHASE_STRIP "NO"
+        XCODE_ATTRIBUTE_STRIP_INSTALLED_PRODUCT "NO"
+        XCODE_ATTRIBUTE_DEPLOYMENT_POSTPROCESSING "NO"
+    )
+    # Mark all library targets as non-installable so Xcode archives only the app
+    set_target_properties(tinyxml BulletPhysics Framework Heightfield Platform
+        SDL2-static SDL2main SDL2_net imgui_lib OpenAL PROPERTIES
+        XCODE_ATTRIBUTE_SKIP_INSTALL "YES"
+    )
+endif()
 
 # Windows-specific settings
 if(WIN32)

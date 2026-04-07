@@ -689,10 +689,11 @@ bool RenderModel::PartRenderPre(const Vector4* colour, bool forceColour, ShaderP
 
     if (forceColour)
     {
-        glDisableVertexAttribArray(normalLoc);
+        if (normalLoc >= 0)
+            glDisableVertexAttribArray(normalLoc);
         glVertexAttrib3f(modelShader->a_normal, 0, 0, 0.0f);
     }
-    else
+    else if (normalLoc >= 0)
     {
         glVertexAttribPointer(normalLoc, 3, GL_FLOAT, GL_FALSE, elementSize, (GLvoid*) (start + sizeof(Vector3)));
         glEnableVertexAttribArray(normalLoc);
@@ -700,15 +701,20 @@ bool RenderModel::PartRenderPre(const Vector4* colour, bool forceColour, ShaderP
 
     if (texture)
     {
-        glDisableVertexAttribArray(shaderInfo.colourLoc);
-        glVertexAttrib4f(shaderInfo.colourLoc, 1.0f, 1.0f, 1.0f, 1.0f);
-
-        glVertexAttribPointer(texCoordLoc, 2, GL_FLOAT, GL_FALSE, elementSize, (GLvoid*) (start + sizeof(Vector3) + sizeof(Vector3)));
-        glEnableVertexAttribArray(texCoordLoc);
+        if (shaderInfo.colourLoc >= 0)
+        {
+            glDisableVertexAttribArray(shaderInfo.colourLoc);
+            glVertexAttrib4f(shaderInfo.colourLoc, 1.0f, 1.0f, 1.0f, 1.0f);
+        }
+        if (texCoordLoc >= 0)
+        {
+            glVertexAttribPointer(texCoordLoc, 2, GL_FLOAT, GL_FALSE, elementSize, (GLvoid*) (start + sizeof(Vector3) + sizeof(Vector3)));
+            glEnableVertexAttribArray(texCoordLoc);
+        }
     }
     else
     {
-        if (!colour && shaderInfo.colourLoc != -1)
+        if (!colour && shaderInfo.colourLoc >= 0)
         {
             glVertexAttribPointer(shaderInfo.colourLoc, 4, GL_FLOAT, GL_FALSE, elementSize, (GLvoid*) (start + sizeof(Vector3) + sizeof(Vector3)));
             glEnableVertexAttribArray(shaderInfo.colourLoc);

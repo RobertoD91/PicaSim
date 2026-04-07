@@ -9,6 +9,13 @@ FrameBufferObject::FrameBufferObject(int width, int height, GLenum format, GLenu
     m_Height = height;
     mPreviousFBO = 0;
 
+    // Save current bindings before touching the FBO state.
+    // On iOS, SDL2 uses a non-zero framebuffer for the screen — restoring to 0
+    // would cause a black screen. Always save/restore to be safe on all platforms.
+    GLint prevFBO = 0, prevRBO = 0;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFBO);
+    glGetIntegerv(GL_RENDERBUFFER_BINDING, &prevRBO);
+
     // Generate a texture for the frame buffer
     glGenTextures(1, &m_Tex);
     glBindTexture(GL_TEXTURE_2D, m_Tex);
@@ -31,7 +38,6 @@ FrameBufferObject::FrameBufferObject(int width, int height, GLenum format, GLenu
     glGenRenderbuffers(1, &m_Depth);
     glBindRenderbuffer(GL_RENDERBUFFER, m_Depth);
     glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, width, height);
-    glBindRenderbuffer(GL_RENDERBUFFER, 0);
 
     // Bind both to the frame buffer
     glBindFramebuffer(GL_FRAMEBUFFER, m_FBO);
@@ -40,7 +46,10 @@ FrameBufferObject::FrameBufferObject(int width, int height, GLenum format, GLenu
 
     // Check the frame buffer for completeness
     IwAssert(Rowlhouse, glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    // Restore previous bindings (critical on iOS where SDL uses framebuffer != 0)
+    glBindFramebuffer(GL_FRAMEBUFFER, prevFBO);
+    glBindRenderbuffer(GL_RENDERBUFFER, prevRBO);
 }
 
 //======================================================================================================================

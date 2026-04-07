@@ -13,6 +13,8 @@ public:
     virtual void Init() = 0;
     void Terminate();
     void Use() const;
+    GLuint GetProgram() const { return mShaderProgram; }
+    bool IsValid() const { return mShaderProgram != 0 && glIsProgram(mShaderProgram); }
 protected:
     friend class ShaderManager;
     GLuint      mShaderProgram;

@@ -16,6 +16,8 @@
 #include <GLES2/gl2.h>
 #elif defined(PICASIM_IOS)
 #include <OpenGLES/ES2/gl.h>
+#elif defined(PICASIM_MACOS)
+#include <OpenGL/gl.h>
 #else
 #include <GL/gl.h>
 #endif

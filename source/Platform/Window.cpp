@@ -8,6 +8,10 @@
 #include <glad/glad.h>
 #elif defined(PICASIM_ANDROID) || defined(__ANDROID__)
 #include <GLES2/gl2.h>
+#elif defined(PICASIM_IOS)
+#include <OpenGLES/ES2/gl.h>
+#elif defined(PICASIM_MACOS)
+#include <OpenGL/gl.h>
 #else
 #include <GL/gl.h>
 #endif
@@ -70,12 +74,18 @@ bool Window::Init(int width, int height, const char* title, bool fullscreen, int
     // Set OpenGL attributes before creating window
     // Request OpenGL 3.3 Core Profile for desktop, but fall back to 2.1 if needed
 #if defined(PS_PLATFORM_ANDROID) || defined(PS_PLATFORM_IOS)
-    // Mobile platforms use OpenGL ES 2.0
+    // Mobile: OpenGL ES 2.0
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+#elif defined(PICASIM_MACOS)
+    // macOS only exposes legacy OpenGL via 2.1. Do not request a core profile
+    // (GLSL 120 shaders are not compatible with core profile on macOS).
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, 0);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
 #else
-    // Desktop platforms - GL 2.1 compatibility mode
+    // Other desktop platforms - compatibility profile
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);

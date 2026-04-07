@@ -595,9 +595,19 @@ void Terrain::Init(btDynamicsWorld& dynamicsWorld, LoadingScreenHelper* loadingS
     Heightfield::Vertex * vertices = 0;
     float xMin = 0.0f;
 
+    // On iOS, relative paths must be resolved to the app bundle Resources directory
+    auto resolvePath = [](const std::string& path) -> std::string
+    {
+#if defined(PICASIM_IOS)
+        if (!path.empty() && path[0] != '/' && path[0] != '.')
+            return FileSystem::GetBasePath() + "/data/" + path;
+#endif
+        return path;
+    };
+
     if (ts.mType == TerrainSettings::TYPE_PANORAMA || ts.mType == TerrainSettings::TYPE_PANORAMA_3D)
     {
-        std::string panoramaFile = ts.mPanoramaName + "/Panorama.xml";
+        std::string panoramaFile = resolvePath(ts.mPanoramaName + "/Panorama.xml");
         GetFileChecksum(checksum, panoramaFile.c_str());
         TiXmlDocument doc(panoramaFile);
         bool success = doc.LoadFile();
@@ -611,7 +621,7 @@ void Terrain::Init(btDynamicsWorld& dynamicsWorld, LoadingScreenHelper* loadingS
         readFromXML(element, "dx", mHeightfieldBoxSize);
         float minZ = readFloatFromXML(element, "minZ");
         float maxZ = readFloatFromXML(element, "maxZ");
-        std::string heightmapFile = readStringFromXML(element, "heightmapFile");
+        std::string heightmapFile = resolvePath(readStringFromXML(element, "heightmapFile"));
         GetFileChecksum(checksum, heightmapFile.c_str());
 
         vertices = new Heightfield::Vertex[nx*nx];
@@ -1087,6 +1097,11 @@ void Terrain::RenderPlain(Viewport* viewport)
 
     if (es.mTerrainSettings.mType == TerrainSettings::TYPE_PANORAMA)
     {
+#ifdef PICASIM_IOS
+        // TerrainPanorama shader does not compile on iOS Metal (OpenGL ES via Metal backend).
+        // Skip this pass entirely; the plain terrain fallback below handles rendering.
+        return;
+#else
         // Set up the vertex buffer and shader program
         terrainPanoramaShader->Use();
         glVertexAttribPointer(terrainPanoramaShader->a_position, 3, GL_FLOAT, GL_FALSE, 0, &mPlainPts[0]);
@@ -1099,6 +1114,7 @@ void Terrain::RenderPlain(Viewport* viewport)
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
         glDisableVertexAttribArray(terrainPanoramaShader->a_position);
+#endif
     }
     else
     {
@@ -1301,10 +1317,15 @@ void Terrain::RenderHeightfield(Viewport* viewport)
     TRACE_FILE_IF(ONCE_3) TRACE("Setting up shaders", num);
     if (es.mTerrainSettings.mType == TerrainSettings::TYPE_PANORAMA)
     {
+#ifdef PICASIM_IOS
+        // TerrainPanorama shader not supported on iOS — use fallback terrain shader
+        return false;
+#else
         terrainPanoramaShader->Use();
         glVertexAttribPointer(terrainPanoramaShader->a_position, 3, GL_FLOAT, GL_FALSE, 0, (GLvoid*) start);
         glEnableVertexAttribArray(terrainPanoramaShader->a_position);
         esSetModelViewProjectionMatrix(terrainPanoramaShader->u_mvpMatrix);
+#endif
     }
     else
     {
@@ -1767,6 +1788,10 @@ void Terrain::RenderShadow(RenderObject& shadowCaster, const Vector3& shadowCast
     float shadowBlur = RenderManager::GetInstance().GetShadowBlur()
         * PicaSim::GetInstance().GetSettings().mOptions.mShadowBlurMultiplier;
     bool useBlurShader = (shadowBlur > 0.001f) && !useBlob;
+#if defined(PICASIM_IOS)
+    // Shadow blur shader not supported on iOS (Metal/OpenGL ES 2.0 constraints)
+    useBlurShader = false;
+#endif
 
     const ShadowShader* shadowShader = (ShadowShader*) ShaderManager::GetInstance().GetShader(SHADER_SHADOW);
     const ShadowBlurShader* shadowBlurShader = useBlurShader ?

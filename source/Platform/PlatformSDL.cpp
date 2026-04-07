@@ -341,8 +341,15 @@ std::vector<std::string> FileSystem::ListDirectory(const std::string& path)
 {
     std::vector<std::string> result;
 
+    // On iOS, relative paths must be resolved to the app bundle Resources directory
+    std::string searchPath = path;
+#if defined(PICASIM_IOS)
+    if (!path.empty() && path[0] != '/' && path[0] != '.')
+        searchPath = GetBasePath() + "/data/" + path;
+#endif
+
 #ifdef _WIN32
-    std::string searchPath = path + "\\*";
+    searchPath = searchPath + "\\*";
     WIN32_FIND_DATAA findData;
     HANDLE hFind = FindFirstFileA(searchPath.c_str(), &findData);
     if (hFind != INVALID_HANDLE_VALUE)
@@ -358,7 +365,7 @@ std::vector<std::string> FileSystem::ListDirectory(const std::string& path)
         FindClose(hFind);
     }
 #else
-    DIR* dir = opendir(path.c_str());
+    DIR* dir = opendir(searchPath.c_str());
     if (dir)
     {
         struct dirent* entry;

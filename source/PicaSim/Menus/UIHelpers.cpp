@@ -48,6 +48,9 @@ void Init()
     ImGui_ImplSDL2_InitForOpenGL(window.GetSDLWindow(), window.GetGLContext());
 #if defined(PICASIM_ANDROID) || defined(PICASIM_IOS)
     ImGui_ImplOpenGL3_Init("#version 100");
+#elif defined(PICASIM_MACOS)
+    // macOS uses OpenGL 2.1 which only supports GLSL 120
+    ImGui_ImplOpenGL3_Init("#version 120");
 #else
     ImGui_ImplOpenGL3_Init("#version 130");
 #endif
@@ -55,8 +58,12 @@ void Init()
     // Setup style
     ImGui::StyleColorsDark();
 
-    // Font path relative to data directory (app runs from data folder)
-    const char* fontPath = "Fonts/FontRegular.ttf";
+    // Font path: relative on desktop/Android, absolute bundle path on iOS
+#if defined(PS_PLATFORM_IOS)
+    std::string fontPath = FileSystem::GetBasePath() + "/data/Fonts/FontRegular.ttf";
+#else
+    std::string fontPath = "Fonts/FontRegular.ttf";
+#endif
 
     // Calculate initial font size based on current screen
     float scale = GetFontScale();
@@ -76,15 +83,15 @@ void Init()
     ImFontConfig fontConfig;
     fontConfig.OversampleH = 2;
     fontConfig.OversampleV = 2;
-    sFont = io.Fonts->AddFontFromFileTTF(fontPath, fontSize, &fontConfig, glyphRanges);
+    sFont = io.Fonts->AddFontFromFileTTF(fontPath.c_str(), fontSize, &fontConfig, glyphRanges);
     if (sFont)
     {
         TRACE_FILE_IF(ONCE_1) TRACE(
-            "UIHelpers: Loaded font from %s at size %.1f with extended glyphs\n", fontPath, fontSize);
+            "UIHelpers: Loaded font from %s at size %.1f with extended glyphs\n", fontPath.c_str(), fontSize);
     }
     else
     {
-        TRACE_FILE_IF(ONCE_1) TRACE("UIHelpers: Failed to load font from %s, using default\n", fontPath);
+        TRACE_FILE_IF(ONCE_1) TRACE("UIHelpers: Failed to load font from %s, using default\n", fontPath.c_str());
         sFont = io.Fonts->AddFontDefault();
     }
 

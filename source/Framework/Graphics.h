@@ -15,6 +15,9 @@
 #elif defined(PS_PLATFORM_IOS)
 #include <OpenGLES/ES2/gl.h>
 #include <OpenGLES/ES2/glext.h>
+#elif defined(PICASIM_MACOS)
+#include <OpenGL/gl.h>
+#include <OpenGL/glext.h>
 #else
 #include <GL/gl.h>
 #include <GL/glext.h>

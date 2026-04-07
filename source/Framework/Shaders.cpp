@@ -1,13 +1,50 @@
 #include "Shaders.h"
 #include "Trace.h"
 
+#if defined(PICASIM_MACOS)
+#include <string>
+#endif
+
 // Use appropriate GLSL version for platform
-// Desktop GL 3.0 uses GLSL 130, OpenGL ES 2.0 uses GLSL 100
+// OpenGL ES 2.0 (Android/iOS) → #version 100
+// macOS OpenGL 2.1            → #version 120 (precision qualifiers stripped at runtime, see below)
+// Desktop OpenGL 3.0+         → #version 130
 #if defined(PS_PLATFORM_ANDROID) || defined(PS_PLATFORM_IOS)
 #define GLSL(src) "#version 100\n" #src
+#elif defined(PICASIM_MACOS)
+#define GLSL(src) "#version 120\n" #src
 #else
-// Desktop GL - use version 130 which supports precision qualifiers as no-ops
 #define GLSL(src) "#version 130\n" #src
+#endif
+
+#if defined(PICASIM_MACOS)
+// GLSL 1.20 does not support precision qualifiers (they are GLES2-specific).
+// The GLSL() macro stringifies the shader body onto ~one line, so we must
+// do find-and-replace on the whole string, not line-by-line.
+static std::string stripPrecisionQualifiers(const char* src)
+{
+    std::string result(src);
+
+    // Remove "precision <qualifier> <type>;" declarations
+    for (const char* pat : {
+        "precision highp float;",   "precision mediump float;",   "precision lowp float;",
+        "precision highp int;",     "precision mediump int;",     "precision lowp int;"})
+    {
+        size_t pos;
+        while ((pos = result.find(pat)) != std::string::npos)
+            result.erase(pos, strlen(pat));
+    }
+
+    // Remove inline qualifier keywords ("mediump ", "highp ", "lowp ")
+    for (const char* q : {"mediump ", "highp ", "lowp "})
+    {
+        size_t pos = 0;
+        while ((pos = result.find(q, pos)) != std::string::npos)
+            result.erase(pos, strlen(q));
+    }
+
+    return result;
+}
 #endif
 
 const char simpleVertexShaderStr[] = GLSL(
@@ -724,7 +761,13 @@ void Shader::Init(const char* vertexShaderStr, const char* fragmentShaderStr)
 {
     mVertexShaderStr = vertexShaderStr;
     mFragmentShaderStr = fragmentShaderStr;
+#if defined(PICASIM_MACOS)
+    std::string vs = stripPrecisionQualifiers(vertexShaderStr);
+    std::string fs = stripPrecisionQualifiers(fragmentShaderStr);
+    mShaderProgram = esLoadProgram(vs.c_str(), fs.c_str());
+#else
     mShaderProgram = esLoadProgram(vertexShaderStr, fragmentShaderStr);
+#endif
 }
 
 //======================================================================================================================

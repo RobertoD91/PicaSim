@@ -36,7 +36,9 @@
       "Bash(sort:*)",
       "Bash(comm:*)",
       "WebSearch",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(git checkout:*)",
+      "Bash(VCPKG_ROOT=/Users/roberto/vcpkg cmake --build --preset macos-arm64-debug)"
     ]
   }
 }

@@ -1,7 +1,12 @@
 #include "Skybox.h"
 #include "TileExpansion.h"
 
-#include <filesystem>
+#if defined(PS_PLATFORM_IOS)
+  #include "Platform.h"
+  #include <cstdio>
+#else
+  #include <filesystem>
+#endif
 
 #include "RenderManager.h"
 #include "LoadingScreenHelper.h"
@@ -16,6 +21,22 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #define DEBUG_SAVE_EXPANDED_TEXTURES 0
+
+// iOS 12 doesn't have std::filesystem. Use fopen-based check instead.
+// On other platforms std::filesystem::exists is used directly (see call sites below).
+#if defined(PS_PLATFORM_IOS)
+static bool FileExists(const char* path)
+{
+    std::string resolved = path;
+    if (path[0] != '/' && path[0] != '.')
+        resolved = FileSystem::GetBasePath() + "/data/" + path;
+    FILE* f = fopen(resolved.c_str(), "rb");
+    if (f) { fclose(f); return true; }
+    return false;
+}
+#else
+static bool FileExists(const char* path) { return std::filesystem::exists(path); }
+#endif
 
 //======================================================================================================================
 // Transform eye separation direction from world space to face-local coordinates
@@ -87,7 +108,7 @@ bool Skybox::Init(const char* skyboxPath, bool use16BitTextures, int maxDetail, 
     while (detail >= 1)
     {
         sprintf(filename, "%s/%d/front1.jpg", skyboxPath, detail);
-        if (std::filesystem::exists(filename))
+        if (FileExists(filename))
         {
             break;
         }
@@ -111,7 +132,7 @@ bool Skybox::Init(const char* skyboxPath, bool use16BitTextures, int maxDetail, 
             for (int iImage = 1; ; ++iImage)
             {
                 sprintf(filename, "%s/%d/%s%d.jpg", skyboxPath, detail, sideNames[iSide], iImage);
-                if (!std::filesystem::exists(filename))
+                if (!FileExists(filename))
                     break;
 
                 sprintf(loadingTxt, "Loading %s%d", sideNames[iSide], iImage);
@@ -206,7 +227,7 @@ bool Skybox::Init(const char* skyboxPath, bool use16BitTextures, int maxDetail, 
             for (int iImage = 1 ; ; ++iImage)
             {
                 sprintf(filename, "%s/%d/%s%d.jpg", skyboxPath, detail, sideNames[iSide], iImage);
-                if (!std::filesystem::exists(filename))
+                if (!FileExists(filename))
                 {
                     break;
                 }
