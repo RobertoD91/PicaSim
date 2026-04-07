@@ -353,7 +353,18 @@ int main(int argc, char* argv[])
         LoadingScreen* initialLoadingScreen = new LoadingScreen(GetPS(PS_LOADING, gameSettings.mOptions.mLanguage), gameSettings, true, false, true);
 
         GLint depthBits = 0;
+#if defined(PICASIM_MACOS)
+        // On macOS, GL_DEPTH_BITS returns 0 even when a depth buffer exists (OpenGL 2.1 quirk).
+        // Use glGetFramebufferAttachmentParameteriv (available since OpenGL 3.0 / as extension on 2.1)
+        // with fallback to GL_DEPTH_BITS so the bogus "no depth buffer" dialog is not shown.
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                                              GL_FRAMEBUFFER_ATTACHMENT_DEPTH_SIZE, &depthBits);
+        if (depthBits == 0)
+            glGetIntegerv(GL_DEPTH_BITS, &depthBits);
+#else
         glGetIntegerv(GL_DEPTH_BITS, &depthBits);
+#endif
         TRACE_FILE_IF(ONCE_1) TRACE("Depth buffer = %d bits", depthBits);
         if (depthBits == 0)
         {

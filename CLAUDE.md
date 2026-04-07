@@ -30,6 +30,7 @@ Always use CMake presets:
 - Configure: `cmake --preset ios-device`
 - Debug: `cmake --build --preset ios-device-debug`
 - Deploy via Xcode: `open build/ios-device/PicaSim.xcodeproj`
+- Archive for TestFlight: `./ios_archive.sh` (do NOT use Xcode's Product→Archive — dSYMs won't be included, see iOS notes below)
 
 **Android:**
 - `cd android && gradlew.bat assembleDebug`
@@ -144,13 +145,14 @@ All configuration uses XML parsed via tinyxml (`source/tinyxml/`).
 - CMake uses Xcode generator (`cmake --preset ios-device`); deploy via Xcode project
 - Install rules are excluded (`if(NOT ANDROID AND NOT IOS)`)
 - iOS bundle resources (data/, icons, LaunchScreen, PrivacyInfo) are configured in CMakeLists.txt
-- **TestFlight/Archive**: CMake's Xcode generator hardcodes `CONFIGURATION_BUILD_DIR` to an absolute path per-target, which prevents Xcode from copying dSYMs into the archive. Use `ios_archive.sh` instead of Xcode's Product→Archive — it overrides `CONFIGURATION_BUILD_DIR` on the command line so dSYMs are properly included
+- **TestFlight/Archive**: CMake's Xcode generator hardcodes `CONFIGURATION_BUILD_DIR` to an absolute path per-target, which prevents Xcode from copying dSYMs into the archive. Use `ios_archive.sh` instead of Xcode's Product→Archive. The script does a two-step process: (1) `xcodebuild build` with CMake's original paths to compile all static libraries where the linker expects them, (2) `xcodebuild archive` with `CONFIGURATION_BUILD_DIR` overridden to `$(BUILD_DIR)/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)` so dSYMs land in the archive. Both steps are needed — skipping step 1 on a clean build causes linker failures because the override moves libraries away from CMake's hardcoded search paths
 - Info.plist includes `NSBluetoothAlwaysUsageDescription` and `NSBluetoothPeripheralUsageDescription` for game controller support via Bluetooth
 
 ### Bullet Physics (source/bullet-2.81/)
 
 - `btScalar.h` had a `#end` typo (should be `#endif`) and malformed `#else` nesting in the DEBUG assert block — fixed for ARM64/clang
 - `ac3d.cpp` guards `<malloc.h>` with `#ifdef _WIN32` (not available on macOS/iOS)
+- `btVector3.h:316` and `btMatrix3x3.h:874` had `bt_splat_ps(..., 0x80)` — `BT_SHUFFLE(0x80,0x80,0x80,0x80)` expands to 10880, outside the valid range [0, 255] for `_mm_shuffle_ps`. Clang/Xcode 21 on macOS x86_64 treats this as a compile error. The scalar result of `_mm_load_ss`/`_mm_mul_ss` is always in component 0, so the correct index is `0`.
 
 ## CI/CD
 

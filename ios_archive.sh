@@ -33,6 +33,21 @@ ARCHIVE_PATH="$ARCHIVE_DIR/PicaSim $DATE_STAMP.xcarchive"
 
 mkdir -p "$ARCHIVE_DIR"
 
+# First, build with CMake's hardcoded paths so all static libraries are compiled
+# and placed where the linker expects them. This is needed because the archive
+# step below overrides CONFIGURATION_BUILD_DIR, which would put libraries in a
+# different location than CMake's hardcoded LIBRARY_SEARCH_PATHS.
+echo "Building dependencies..."
+xcodebuild build \
+    -project "$PROJECT" \
+    -scheme PicaSim \
+    -configuration Release \
+    -destination 'generic/platform=iOS' \
+    -quiet
+
+# Now archive with CONFIGURATION_BUILD_DIR override so the dSYM ends up in the
+# standard Xcode archive intermediates path and gets copied to the .xcarchive.
+# The static libraries are already at the CMake-hardcoded paths from the build above.
 echo "Archiving PicaSim..."
 xcodebuild archive \
     -project "$PROJECT" \

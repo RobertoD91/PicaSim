@@ -40,7 +40,15 @@
       "Bash(git checkout:*)",
       "Bash(VCPKG_ROOT=/Users/roberto/vcpkg cmake --build --preset macos-arm64-debug)",
       "Bash(xcodebuild -showsdks)",
-      "Bash(./ios_archive.sh:*)"
+      "Bash(./ios_archive.sh:*)",
+      "Bash(VCPKG_ROOT=/Users/roberto/vcpkg cmake --preset macos-x64)",
+      "Bash(VCPKG_ROOT=/Users/roberto/vcpkg cmake --build --preset macos-x64-debug)",
+      "Bash(../build/macos-x64/Debug/PicaSim)",
+      "Bash(git -C /tmp/picasim-ios-test2 log --oneline refactor1..HEAD)",
+      "Bash(git -C /tmp/picasim-ios-test2 show 1810f03 --stat)",
+      "Bash(git -C /tmp/picasim-ios-test2 show 1810f03)",
+      "Bash(git -C /tmp/picasim-ios-test2 diff refactor1...HEAD -- source/ --name-only)",
+      "Bash(git:*)"
     ]
   }
 }

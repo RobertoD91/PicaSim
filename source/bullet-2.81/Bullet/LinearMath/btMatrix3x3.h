@@ -871,7 +871,7 @@ SIMD_FORCE_INLINE btMatrix3x3
 operator*(const btMatrix3x3& m, const btScalar & k)
 {
 #if (defined (BT_USE_SSE_IN_API) && defined (BT_USE_SSE))
-    __m128 vk = bt_splat_ps(_mm_load_ss((float *)&k), 0x80);
+    __m128 vk = bt_splat_ps(_mm_load_ss((float *)&k), 0); // Fix: was 0x80 (bug in Bullet 2.81) — BT_SHUFFLE(0x80,...) produces 10880, outside [0,255] valid range for _mm_shuffle_ps; clang/Xcode 21 on macOS x86_64 treats this as a compile error. _mm_load_ss loads scalar into component 0, so index 0 is correct.
     return btMatrix3x3(
                 _mm_mul_ps(m[0].mVec128, vk), 
                 _mm_mul_ps(m[1].mVec128, vk), 

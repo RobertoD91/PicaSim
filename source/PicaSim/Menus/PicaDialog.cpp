@@ -236,8 +236,12 @@ int InGameDialog::Update(float dt, const char* title, const char* text,
     // End ImGui frame and render
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-    const auto& opts = PicaSim::GetInstance().GetSettings().mOptions;
-    VRMenuRenderer::EndMenuFrame(opts.mVRUIScale, opts.mVROverlayDistance);
+    // Guard: PicaSim may not exist yet (e.g. dialog shown during early init before singleton creation)
+    if (PicaSim::IsCreated())
+    {
+        const auto& opts = PicaSim::GetInstance().GetSettings().mOptions;
+        VRMenuRenderer::EndMenuFrame(opts.mVRUIScale, opts.mVROverlayDistance);
+    }
 
     // Check for exit conditions
     if (shouldExit)

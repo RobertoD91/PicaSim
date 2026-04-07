@@ -313,7 +313,7 @@ public:
 
         y = _mm_mul_ss(y, z);   // y0 * (1.5 - vd * 0.5 * y0 * y0)
 
-		y = bt_splat_ps(y, 0x80);
+		y = bt_splat_ps(y, 0); // Fix: was 0x80 (bug in Bullet 2.81) — BT_SHUFFLE(0x80,...) produces 10880, outside [0,255] valid range for _mm_shuffle_ps; clang/Xcode 21 on macOS x86_64 treats this as a compile error. Scalar result of _mm_mul_ss is in component 0, so index 0 is correct.
 		mVec128 = _mm_mul_ps(mVec128, y);
 
         #endif
