@@ -49,5 +49,9 @@
 	<true/>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>PicaSim uses Bluetooth to connect to game controllers for flying RC aircraft.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>PicaSim uses Bluetooth to connect to game controllers for flying RC aircraft.</string>
 </dict>
 </plist>

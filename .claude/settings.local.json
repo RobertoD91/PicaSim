@@ -39,7 +39,8 @@
       "WebFetch(domain:github.com)",
       "Bash(git checkout:*)",
       "Bash(VCPKG_ROOT=/Users/roberto/vcpkg cmake --build --preset macos-arm64-debug)",
-      "Bash(xcodebuild -showsdks)"
+      "Bash(xcodebuild -showsdks)",
+      "Bash(./ios_archive.sh:*)"
     ]
   }
 }

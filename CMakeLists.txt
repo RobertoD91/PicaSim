@@ -95,14 +95,12 @@ elseif(IOS)
     set(SDL_STATIC ON CACHE BOOL "" FORCE)
     set(LIBTYPE "STATIC" CACHE STRING "" FORCE)
 
-    # Xcode code signing and dSYM (applied globally; overridden per-target below)
+    # Xcode code signing and dSYM (applied globally so Archive includes dSYM)
     set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "Apple Development" CACHE STRING "" FORCE)
     set(CMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "486X3EYM77" CACHE STRING "" FORCE)
     set(CMAKE_XCODE_ATTRIBUTE_DEBUG_INFORMATION_FORMAT "dwarf-with-dsym" CACHE STRING "" FORCE)
     set(CMAKE_XCODE_ATTRIBUTE_GCC_GENERATE_DEBUGGING_SYMBOLS "YES" CACHE STRING "" FORCE)
-    set(CMAKE_XCODE_ATTRIBUTE_COPY_PHASE_STRIP "NO" CACHE STRING "" FORCE)
-    set(CMAKE_XCODE_ATTRIBUTE_STRIP_INSTALLED_PRODUCT "NO" CACHE STRING "" FORCE)
-    set(CMAKE_XCODE_ATTRIBUTE_DEPLOYMENT_POSTPROCESSING "NO" CACHE STRING "" FORCE)
+    set(CMAKE_XCODE_ATTRIBUTE_DEPLOYMENT_POSTPROCESSING "YES" CACHE STRING "" FORCE)
 else()
     # Desktop: static libraries (no DLL management)
     set(SDL_SHARED OFF CACHE BOOL "" FORCE)
@@ -462,9 +460,6 @@ if(IOS)
         XCODE_ATTRIBUTE_DEBUG_INFORMATION_FORMAT "dwarf-with-dsym"
         XCODE_ATTRIBUTE_GCC_GENERATE_DEBUGGING_SYMBOLS "YES"
         XCODE_ATTRIBUTE_ENABLE_BITCODE "NO"
-        XCODE_ATTRIBUTE_COPY_PHASE_STRIP "NO"
-        XCODE_ATTRIBUTE_STRIP_INSTALLED_PRODUCT "NO"
-        XCODE_ATTRIBUTE_DEPLOYMENT_POSTPROCESSING "NO"
     )
     # Mark all library targets as non-installable so Xcode archives only the app
     set_target_properties(tinyxml BulletPhysics Framework Heightfield Platform

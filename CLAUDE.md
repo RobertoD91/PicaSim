@@ -144,6 +144,8 @@ All configuration uses XML parsed via tinyxml (`source/tinyxml/`).
 - CMake uses Xcode generator (`cmake --preset ios-device`); deploy via Xcode project
 - Install rules are excluded (`if(NOT ANDROID AND NOT IOS)`)
 - iOS bundle resources (data/, icons, LaunchScreen, PrivacyInfo) are configured in CMakeLists.txt
+- **TestFlight/Archive**: CMake's Xcode generator hardcodes `CONFIGURATION_BUILD_DIR` to an absolute path per-target, which prevents Xcode from copying dSYMs into the archive. Use `ios_archive.sh` instead of Xcode's Product→Archive — it overrides `CONFIGURATION_BUILD_DIR` on the command line so dSYMs are properly included
+- Info.plist includes `NSBluetoothAlwaysUsageDescription` and `NSBluetoothPeripheralUsageDescription` for game controller support via Bluetooth
 
 ### Bullet Physics (source/bullet-2.81/)
 
@@ -160,11 +162,12 @@ GitHub Actions workflows in `.github/workflows/`:
 
 All workflows trigger on push to `main` and `port/mobile-fixes`, plus `workflow_dispatch`.
 
-## macOS Distribution Scripts
+## Distribution Scripts
 
 - `macos_create_app_bundle.sh` - Packages the installed build into a .app bundle
 - `macos_create_dmg.sh` - Creates a DMG from the .app bundle
 - `macos_notarize.sh` - Code signing and notarization for distribution
+- `ios_archive.sh` - Creates Xcode archive with dSYM for TestFlight upload (workaround for CMake+Xcode dSYM issue)
 - `resources/generate_icons.py` - Generates Windows, Android and iOS icons from source images
 
 ## Migration Status
