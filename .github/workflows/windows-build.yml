@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - port/mobile-fixes
+      - refactor1
   workflow_dispatch:
 
 jobs:
