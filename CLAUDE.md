@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Claude's goal
 
-The goal for Claude is to help develop PicaSim across Windows, Android and iOS.
+The goal for Claude is to help develop PicaSim across Windows, Android, macOS and iOS.
 
-The original project has been ported from Marmalade SDK to SDL2 + OpenGL. Windows and Android ports are complete. iOS is not yet started.
+The original project has been ported from Marmalade SDK to SDL2 + OpenGL. Windows, Android, macOS and iOS ports are functional.
 
 The original project is owned by me, so I have all rights to do this.
 
@@ -14,11 +14,24 @@ The intention is to not change any existing behaviour significantly.
 
 ## Building
 
-Always use CMake presets for desktop:
+Always use CMake presets:
+
+**Windows:**
 - Debug: `cmake --build --preset windows-x64-debug`
 - Release: `cmake --build --preset windows-x64-release`
 
-For Android:
+**macOS (arm64):**
+- Configure: `VCPKG_ROOT=/Users/roberto/vcpkg cmake --preset macos-arm64`
+- Debug: `VCPKG_ROOT=/Users/roberto/vcpkg cmake --build --preset macos-arm64-debug`
+- Release: `VCPKG_ROOT=/Users/roberto/vcpkg cmake --build --preset macos-arm64-release`
+- Run: `cd data && ../build/macos-arm64/Debug/PicaSim` (must run from `data/` directory)
+
+**iOS:**
+- Configure: `cmake --preset ios-device`
+- Debug: `cmake --build --preset ios-device-debug`
+- Deploy via Xcode: `open build/ios-device/PicaSim.xcodeproj`
+
+**Android:**
 - `cd android && gradlew.bat assembleDebug`
 
 Always build in debug when building automatically, if just asked to "build". Requests to build in release will always be explicit.
@@ -29,7 +42,7 @@ Never volunteer to commit changes. Only create commits when explicitly requested
 
 ## Project Overview
 
-PicaSim is a cross-platform R/C flight simulator built with C++. It simulates radio-controlled aircraft with realistic physics, multiple aircraft types (40+), and various environments. The project targets Windows, Android, and iOS.
+PicaSim is a cross-platform R/C flight simulator built with C++. It simulates radio-controlled aircraft with realistic physics, multiple aircraft types (40+), and various environments. The project targets Windows, macOS, Android, and iOS.
 
 **Current stack**: SDL2 (window/input), OpenGL/GLES2 (rendering), OpenAL-Soft (audio), GLM (math), Bullet Physics (physics), Dear ImGui (UI).
 
@@ -69,8 +82,9 @@ PicaSim is a cross-platform R/C flight simulator built with C++. It simulates ra
 - `S3ECompat.h` - Marmalade API compatibility shims (SDL2 implementations)
 - `Input.cpp/h` - Unified input handling (keyboard, mouse, touch, gamepad)
 - `imgui_impl_sdl2.cpp/h` - ImGui SDL2 backend
+- `GLCompat.h` - Apple platform OpenGL header shim (pre-included via CMake `-include` on our targets only)
 - `AndroidAssets.cpp/h` - APK asset extraction to internal storage
-- `VRManager.cpp/h`, `OpenXRRuntime.cpp/h` - VR support via OpenXR
+- `VRManager.cpp/h`, `OpenXRRuntime.cpp/h` - VR support via OpenXR (desktop only)
 - `FontRenderer.cpp/h` - Bitmap font rendering for in-game overlay text
 
 ### Physics
@@ -107,9 +121,55 @@ All configuration uses XML parsed via tinyxml (`source/tinyxml/`).
 - `source/Platform/S3ECompat.h` - Compatibility layer replacing Marmalade s3e* APIs with SDL2
 - `source/Platform/Input.cpp` - SDL2-based input (keyboard, mouse, touch, gamepad)
 
+## Platform-Specific Notes
+
+### macOS
+
+- **OpenGL 2.1** with GLSL 1.20 (via Apple's Metal translation layer)
+- GLSL 1.20 does **not** support `precision` qualifiers — they are stripped at runtime by `stripPrecisionQualifiers()` in `Shaders.cpp`
+- The `GLSL()` macro stringifies shader bodies onto one line; the stripping function does find-and-replace on the whole string, not line-by-line
+- Window context: compatibility profile (not core), OpenGL 2.1 requested explicitly
+- `GLCompat.h` is pre-included via CMake `-include` flag on Framework/Platform/Heightfield/PicaSim targets (NOT on third-party targets like ImGui/SDL2)
+- VR (OpenXR) is disabled on Apple platforms; `VRManager.cpp` and `OpenXRRuntime.cpp` are excluded from build
+- `GL_MAX_VERTEX_UNIFORM_VECTORS` and similar GLES2 constants are defined in `GLCompat.h` for macOS
+
+### iOS
+
+- **OpenGL ES 2.0** with GLSL 1.00
+- At startup, `Main.cpp` does `chdir(GetBasePath() + "data")` so all relative paths work without per-file resolution
+- `std::filesystem` is **not available** on iOS 12 (requires iOS 13+) — use `<dirent.h>` + `<sys/stat.h>` instead
+- GLES2 requires `GL_CLAMP_TO_EDGE` for non-power-of-two (NPOT) textures (otherwise they render black)
+- UI scaling uses pixel-based formula (`height / 720.0f`), not the Android DPI-aware formula
+- SDL2 on iOS uses a non-zero default framebuffer — `FrameBufferObject` saves/restores `GL_FRAMEBUFFER_BINDING`
+- CMake uses Xcode generator (`cmake --preset ios-device`); deploy via Xcode project
+- Install rules are excluded (`if(NOT ANDROID AND NOT IOS)`)
+- iOS bundle resources (data/, icons, LaunchScreen, PrivacyInfo) are configured in CMakeLists.txt
+
+### Bullet Physics (source/bullet-2.81/)
+
+- `btScalar.h` had a `#end` typo (should be `#endif`) and malformed `#else` nesting in the DEBUG assert block — fixed for ARM64/clang
+- `ac3d.cpp` guards `<malloc.h>` with `#ifdef _WIN32` (not available on macOS/iOS)
+
+## CI/CD
+
+GitHub Actions workflows in `.github/workflows/`:
+- `windows-build.yml` - Windows x64 build + install
+- `macos-build.yml` - macOS arm64 + x86_64 builds, universal binary, DMG creation
+- `android-build.yml` - Android debug APK build
+- `ios-build.yml` - iOS device build (unsigned IPA)
+
+All workflows trigger on push to `main` and `port/mobile-fixes`, plus `workflow_dispatch`.
+
+## macOS Distribution Scripts
+
+- `macos_create_app_bundle.sh` - Packages the installed build into a .app bundle
+- `macos_create_dmg.sh` - Creates a DMG from the .app bundle
+- `macos_notarize.sh` - Code signing and notarization for distribution
+- `resources/generate_icons.py` - Generates Windows, Android and iOS icons from source images
+
 ## Migration Status
 
-The Windows desktop port and Android port are **complete**. iOS remains to be done.
+All four platform ports (Windows, Android, macOS, iOS) are **functional**.
 
 ### Completed
 
@@ -120,12 +180,26 @@ The Windows desktop port and Android port are **complete**. iOS remains to be do
 - Math types (GLM replacing CIwFVec3/CIwFMat/etc.)
 - VR support via OpenXR
 
+**macOS Desktop**
+- CMake preset `macos-arm64` (Ninja Multi-Config, vcpkg for glad)
+- OpenGL 2.1 with GLSL 1.20 (precision qualifiers stripped at runtime)
+- `GLCompat.h` for OES→core mapping and missing GLES2 constants
+- App bundle creation, DMG packaging, notarization scripts
+
 **Android**
 - Gradle 8.5 + CMake build, APK packaging with bundled assets
 - GLES2 rendering (shader-based, no fixed-function pipeline)
 - Asset extraction from APK to internal storage on first launch
 - DPI-aware UI scaling, drag-to-scroll, safe area insets
 - Supported ABIs: arm64-v8a, x86_64
+
+**iOS**
+- CMake preset `ios-device` (Xcode generator, arm64, deployment target 12.0)
+- GLES2 rendering with NPOT texture handling
+- `chdir` to bundle `data/` directory at startup for path resolution
+- `dirent`-based directory scanning (no std::filesystem on iOS 12)
+- Pixel-based UI scaling
+- App icons, LaunchScreen, PrivacyInfo.xcprivacy in `ios/`
 
 **Audio (OpenAL-Soft)**
 - Complete 3D positional audio with distance attenuation
@@ -145,12 +219,6 @@ The Windows desktop port and Android port are **complete**. iOS remains to be do
 **Networking (SDL2_net)**
 - TCP server on port 7777 for remote aircraft control
 
-### To Do
-
-**iOS**
-- Needs view controller, SDL2 integration, GLES2 rendering
-- SDL2 handles most cross-platform work; mainly needs app scaffolding
-
 ## Licensing
 
 PicaSim source is licensed under the **PolyForm Noncommercial License 1.0.0**. Third-party components have separate licenses:
@@ -166,4 +234,3 @@ PicaSim source is licensed under the **PolyForm Noncommercial License 1.0.0**. T
  - README.md
  - CODE_STYLE.md
  - ParallaxPanorama.md
-

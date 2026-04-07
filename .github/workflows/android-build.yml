@@ -1,0 +1,118 @@
+name: Android Build
+
+on:
+  push:
+    branches:
+      - main
+      - port/mobile-fixes
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK
+        run: |
+          sdkmanager --install "ndk;25.2.9519653"
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('android/**/*.gradle', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-
+
+      - name: Generate asset manifest
+        run: |
+          python tools/generate_asset_manifest.py data data/assets_manifest.txt packaging_excludes.txt
+
+      - name: Build debug APK
+        working-directory: android
+        run: |
+          ./gradlew assembleDebug
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: picasim-android-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 14
+
+  test-android:
+    needs: build-android
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download APK
+        uses: actions/download-artifact@v4
+        with:
+          name: picasim-android-debug
+          path: apk
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      # - name: Run emulator and test app
+      #   uses: ReactiveCircus/android-emulator-runner@v2
+      #   with:
+      #     api-level: 31
+      #     target: google_apis
+      #     arch: x86_64
+      #     emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+      #     script: |
+      #       adb install apk/app-debug.apk
+      #       adb shell am start -n com.rowlhouse.picasim/.PicaSimActivity
+      #       # Give it time to start and extract assets
+      #       sleep 30
+      #       # Check if the process is still alive (not crashed)
+      #       if adb shell pidof com.rowlhouse.picasim > /dev/null 2>&1; then
+      #         echo "PicaSim is running OK"
+      #       else
+      #         echo "PicaSim crashed"
+      #         adb logcat -d -s "PicaSim" "SDL" "SDL/APP" "libc" "DEBUG" | tail -100
+      #         exit 1
+      #       fi
+
+      # - name: Collect logs
+      #   if: always()
+      #   run: |
+      #     adb logcat -d -s "PicaSim" "SDL" "SDL/APP" | tail -200 > android-logs.txt || true
+
+      # - name: Upload logs
+      #   if: always()
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: android-test-logs
+      #     path: android-logs.txt
+      #     retention-days: 7

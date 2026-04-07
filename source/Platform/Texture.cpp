@@ -260,9 +260,16 @@ void Texture::Upload()
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-    // Set default wrapping
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    // GLES2 requires CLAMP_TO_EDGE for non-power-of-two textures (otherwise texture is incomplete/black)
+    bool isPOT = (mWidth & (mWidth - 1)) == 0 && (mHeight & (mHeight - 1)) == 0 && mWidth > 0 && mHeight > 0;
+#if defined(PICASIM_ANDROID) || defined(PICASIM_IOS)
+    GLenum wrapMode = isPOT ? GL_REPEAT : GL_CLAMP_TO_EDGE;
+#else
+    GLenum wrapMode = GL_REPEAT;
+    (void)isPOT;
+#endif
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrapMode);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrapMode);
 
     glBindTexture(GL_TEXTURE_2D, 0);
 

@@ -212,7 +212,7 @@ From the project root:
 # Debug build (arm64-v8a + x86_64)
 cd android
 gradlew.bat assembleDebug        # Windows
-./gradlew assembleDebug           # Linux/macOS
+./gradlew assembleDebug           # Linux/macOS (set python to python3 and use jdk temurin 17)
 ```
 
 The APK is output to `android/app/build/outputs/apk/debug/app-debug.apk`.

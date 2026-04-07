@@ -1,0 +1,98 @@
+name: iOS Build
+
+on:
+  push:
+    branches:
+      - main
+      - port/mobile-fixes
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: device
+            configure_preset: ios-device
+            build_preset: ios-device-release
+            sdk: iphoneos
+          # Simulator build disabled: too slow in CI and less useful
+          # - target: simulator
+          #   configure_preset: ios-simulator
+          #   build_preset: ios-simulator-release
+          #   sdk: iphonesimulator
+
+    runs-on: macos-latest
+    name: Build iOS (${{ matrix.target }})
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          xcodebuild -version
+
+      - name: Configure CMake
+        run: |
+          cmake --preset ${{ matrix.configure_preset }} \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY="" \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED=NO \
+            -DCMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM=""
+
+      - name: Build
+        run: |
+          cmake --build --preset ${{ matrix.build_preset }} -- \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            DEVELOPMENT_TEAM=""
+
+      - name: Locate .app bundle
+        id: locate
+        run: |
+          APP_PATH=$(find build/${{ matrix.configure_preset }}/Release-${{ matrix.sdk }} -name "PicaSim.app" -type d | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: PicaSim.app not found"
+            find build/${{ matrix.configure_preset }} -name "*.app" -type d
+            exit 1
+          fi
+          echo "app_path=$APP_PATH" >> "$GITHUB_OUTPUT"
+          echo "Found app at: $APP_PATH"
+
+      - name: Create unsigned IPA (device)
+        if: matrix.target == 'device'
+        run: |
+          mkdir -p Payload
+          cp -R "${{ steps.locate.outputs.app_path }}" Payload/
+          zip -r PicaSim-ios-device-unsigned.ipa Payload
+          rm -rf Payload
+
+      - name: Package simulator app
+        if: matrix.target == 'simulator'
+        run: |
+          cd "$(dirname "${{ steps.locate.outputs.app_path }}")"
+          zip -r "$GITHUB_WORKSPACE/PicaSim-ios-simulator.zip" PicaSim.app
+
+      - name: Upload artifact (device)
+        if: matrix.target == 'device'
+        uses: actions/upload-artifact@v4
+        with:
+          name: picasim-ios-device-unsigned-ipa
+          path: PicaSim-ios-device-unsigned.ipa
+          retention-days: 30
+
+      - name: Upload artifact (simulator)
+        if: matrix.target == 'simulator'
+        uses: actions/upload-artifact@v4
+        with:
+          name: picasim-ios-simulator
+          path: PicaSim-ios-simulator.zip
+          retention-days: 30
