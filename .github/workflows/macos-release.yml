@@ -1,0 +1,212 @@
+name: macOS Signed Release
+
+# Monthly signed + notarized universal DMG published to GitHub Releases.
+#
+# The workflow does not hardcode a repository name: a preliminary job checks
+# that the required signing secrets are configured and skips everything
+# otherwise, so it is a no-op on forks/upstream without secrets.
+#
+# Required repository secrets:
+#   MACOS_CERT_P12_BASE64            - "Developer ID Application" certificate (.p12), base64-encoded
+#   MACOS_CERT_PASSWORD              - password of the .p12 above
+#   APP_STORE_CONNECT_KEY_ID         - App Store Connect API key ID (for notarytool)
+#   APP_STORE_CONNECT_ISSUER_ID      - App Store Connect API issuer ID
+#   APP_STORE_CONNECT_API_KEY_BASE64 - App Store Connect API private key (.p8), base64-encoded
+
+on:
+  schedule:
+    - cron: '0 4 1 * *'  # 04:00 UTC on the 1st of every month
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  check-secrets:
+    runs-on: ubuntu-latest
+    outputs:
+      ok: ${{ steps.check.outputs.ok }}
+    steps:
+      - name: Check required secrets
+        id: check
+        env:
+          SECRETS_PRESENT: ${{ secrets.MACOS_CERT_P12_BASE64 != '' && secrets.MACOS_CERT_PASSWORD != '' && secrets.APP_STORE_CONNECT_KEY_ID != '' && secrets.APP_STORE_CONNECT_ISSUER_ID != '' && secrets.APP_STORE_CONNECT_API_KEY_BASE64 != '' }}
+        run: |
+          echo "ok=$SECRETS_PRESENT" >> "$GITHUB_OUTPUT"
+          if [ "$SECRETS_PRESENT" != "true" ]; then
+            echo "macOS signing secrets are not configured on this repository; skipping signed release." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  build-macos:
+    needs: check-secrets
+    if: needs.check-secrets.outputs.ok == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            configure_preset: macos-arm64
+            build_preset: macos-arm64-release
+            runner: macos-latest
+          - arch: x86_64
+            configure_preset: macos-x64
+            build_preset: macos-x64-release
+            runner: macos-15-intel
+
+    runs-on: ${{ matrix.runner }}
+    name: Build macOS (${{ matrix.arch }})
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+
+      - name: Configure CMake
+        run: |
+          cmake --preset ${{ matrix.configure_preset }}
+
+      - name: Build
+        run: |
+          cmake --build --preset ${{ matrix.build_preset }}
+
+      - name: Install
+        run: |
+          cmake --install build/${{ matrix.configure_preset }} --config Release
+
+      - name: Create app bundle
+        run: |
+          ./macos_create_app_bundle.sh dist/PicaSim-*/ dist
+
+      # Tar preserves executable permissions, which upload-artifact does not
+      - name: Package app bundle
+        run: |
+          tar -czf picasim-app-${{ matrix.arch }}.tar.gz -C dist PicaSim.app
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: picasim-app-${{ matrix.arch }}
+          path: picasim-app-${{ matrix.arch }}.tar.gz
+          retention-days: 1
+
+  release:
+    name: Sign, notarize and publish release
+    needs: build-macos
+    runs-on: macos-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download ARM64 build
+        uses: actions/download-artifact@v4
+        with:
+          name: picasim-app-arm64
+
+      - name: Download x86_64 build
+        uses: actions/download-artifact@v4
+        with:
+          name: picasim-app-x86_64
+
+      - name: Create universal app bundle
+        run: |
+          mkdir dist-arm64 dist-x86_64 dist
+          tar -xzf picasim-app-arm64.tar.gz -C dist-arm64
+          tar -xzf picasim-app-x86_64.tar.gz -C dist-x86_64
+
+          cp -R dist-arm64/PicaSim.app dist/PicaSim.app
+
+          echo "Creating universal binary for PicaSim..."
+          lipo -create \
+            dist-arm64/PicaSim.app/Contents/MacOS/PicaSim \
+            dist-x86_64/PicaSim.app/Contents/MacOS/PicaSim \
+            -output dist/PicaSim.app/Contents/MacOS/PicaSim
+          chmod +x dist/PicaSim.app/Contents/MacOS/PicaSim dist/PicaSim.app/Contents/MacOS/PicaSim-launcher
+
+          lipo -info dist/PicaSim.app/Contents/MacOS/PicaSim
+
+      - name: Import Developer ID certificate
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/picasim-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          CERT_PATH="$RUNNER_TEMP/developer-id.p12"
+          echo -n "$MACOS_CERT_P12_BASE64" | base64 --decode > "$CERT_PATH"
+          security import "$CERT_PATH" -P "$MACOS_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          rm -f "$CERT_PATH"
+
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" \
+            | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)
+          if [ -z "$IDENTITY" ]; then
+            echo "ERROR: no 'Developer ID Application' identity found in the imported certificate."
+            exit 1
+          fi
+          echo "Using signing identity: $IDENTITY"
+          echo "SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+
+      - name: Install App Store Connect API key
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
+        run: |
+          API_KEY_PATH="$RUNNER_TEMP/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
+          echo -n "$APP_STORE_CONNECT_API_KEY_BASE64" | base64 --decode > "$API_KEY_PATH"
+          echo "API_KEY_PATH=$API_KEY_PATH" >> "$GITHUB_ENV"
+
+      - name: Sign, create DMG and notarize
+        env:
+          PICASIM_NOTARY_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          PICASIM_NOTARY_ISSUER: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          PICASIM_MACOS_CERT="$SIGNING_IDENTITY" \
+          PICASIM_NOTARY_KEY_FILE="$API_KEY_PATH" \
+          ./macos_notarize.sh
+
+      - name: Prepare release asset
+        id: asset
+        run: |
+          VERSION=$(grep -oE 'Version [0-9.]+' VERSIONS.txt | head -1 | sed 's/Version //')
+          ASSET="PicaSim-${VERSION}-macos-universal.dmg"
+          mv "dist/PicaSim-${VERSION}.dmg" "$ASSET"
+          TAG="v${VERSION}-macos-$(date +%Y%m%d)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "asset=$ASSET" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.asset.outputs.tag }}
+          name: PicaSim ${{ steps.asset.outputs.version }} (macOS)
+          files: ${{ steps.asset.outputs.asset }}
+          body: |
+            Signed and notarized universal (arm64 + x86_64) macOS build of PicaSim ${{ steps.asset.outputs.version }}.
+
+            Built automatically from commit ${{ github.sha }}.
+
+      - name: Clean up signing material
+        if: always()
+        run: |
+          if [ -n "${KEYCHAIN_PATH:-}" ] && [ -f "$KEYCHAIN_PATH" ]; then
+            security delete-keychain "$KEYCHAIN_PATH"
+          fi
+          if [ -n "${API_KEY_PATH:-}" ]; then
+            rm -f "$API_KEY_PATH"
+          fi
