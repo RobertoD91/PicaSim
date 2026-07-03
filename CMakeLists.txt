@@ -442,11 +442,19 @@ target_include_directories(PicaSim PRIVATE ${BULLET_SOURCE_DIR})
 
 # iOS-specific Xcode properties
 if(IOS)
+    # TestFlight requires a strictly increasing CFBundleVersion per upload; CI
+    # passes the workflow run number here. Local builds keep the plain version.
+    set(PICASIM_IOS_BUILD_NUMBER "" CACHE STRING "Override CFBundleVersion for iOS CI/TestFlight builds")
+    if(PICASIM_IOS_BUILD_NUMBER)
+        set(PICASIM_IOS_BUNDLE_VERSION "${PICASIM_IOS_BUILD_NUMBER}")
+    else()
+        set(PICASIM_IOS_BUNDLE_VERSION "${PICASIM_VERSION}")
+    endif()
     set_target_properties(PicaSim PROPERTIES
         MACOSX_BUNDLE TRUE
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/ios/Info.plist.in"
         MACOSX_BUNDLE_BUNDLE_NAME "PicaSim"
-        MACOSX_BUNDLE_BUNDLE_VERSION "${PICASIM_VERSION}"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${PICASIM_IOS_BUNDLE_VERSION}"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PICASIM_VERSION}"
         MACOSX_BUNDLE_GUI_IDENTIFIER "it.robertodisanto.PicaSim"
         XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "it.robertodisanto.PicaSim"
