@@ -187,12 +187,13 @@ GitHub Actions workflows in `.github/workflows/`:
 - `macos-build.yml` - macOS arm64 + x86_64 builds, universal DMG artifact (unsigned)
 - `ios-testflight.yml` - Monthly (1st of each month) signed build uploaded to TestFlight
 - `macos-release.yml` - Monthly signed + notarized universal DMG published to GitHub Releases
+- `github-release.yml` - Monthly multi-platform GitHub Release (Linux AppImages, Windows zip, Android APK)
 
-The build workflows trigger on push to `main` and `refactor1`, plus `workflow_dispatch`; all except `macos-build.yml` also run on pull requests to `main`. Concurrency is set per workflow+branch to cancel in-progress runs on new pushes, and every job has a `timeout-minutes`. Linux and macOS builds use ccache (persisted via `actions/cache`, keyed per architecture) so warm builds skip recompiling the third-party submodules.
+The build workflows trigger on push to `main` and `refactor1`, plus pull requests to `main` and `workflow_dispatch`. Concurrency is set per workflow+branch to cancel in-progress runs on new pushes, and every job has a `timeout-minutes`. Linux and macOS builds use ccache (persisted via `actions/cache`, keyed per architecture) so warm builds skip recompiling the third-party submodules.
 
-The two release workflows (`ios-testflight.yml`, `macos-release.yml`) run on a monthly cron plus `workflow_dispatch`. They do not hardcode a repository name: a `check-secrets` job verifies that the required signing secrets are configured and skips everything otherwise, so they are a no-op on forks without secrets. See `RELEASE_SIGNING.md` for how to create the signing material and upload the secrets. TestFlight uploads need a strictly increasing `CFBundleVersion`, provided via the `PICASIM_IOS_BUILD_NUMBER` CMake cache variable (set to the workflow run number in CI).
+The three release workflows (`ios-testflight.yml`, `macos-release.yml`, `github-release.yml`) run on a monthly cron plus `workflow_dispatch`. They do not hardcode a repository name: the two signed ones gate on a `check-secrets` job that verifies the required signing secrets are configured, and `github-release.yml` gates on the repository variable `PICASIM_PUBLISH_RELEASES` being `true` — so all three are a no-op on forks that have not opted in. See `RELEASE_SIGNING.md` for how to create the signing material and upload the secrets. TestFlight uploads need a strictly increasing `CFBundleVersion`, provided via the `PICASIM_IOS_BUILD_NUMBER` CMake cache variable (set to the workflow run number in CI).
 
-Security rule for the release workflows: they handle signing material, so they must not use third-party actions (only `actions/*` from GitHub itself) — releases are published with the preinstalled `gh` CLI and vcpkg is cloned manually pinned to the `builtin-baseline` from `vcpkg.json`. Rationale in `RELEASE_SIGNING.md`.
+Security rule for the release workflows: they publish user-facing artifacts and/or handle signing material, so they must not use third-party actions (only `actions/*` from GitHub itself) — releases are published with the preinstalled `gh` CLI and vcpkg is cloned manually pinned to the `builtin-baseline` from `vcpkg.json`. Rationale in `RELEASE_SIGNING.md`.
 
 ## Distribution Scripts
 

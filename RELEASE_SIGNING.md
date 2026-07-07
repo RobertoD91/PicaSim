@@ -11,6 +11,17 @@ it as secrets.
 Prerequisites: a paid Apple Developer account, a Mac (for Keychain Access),
 and admin access to the GitHub repository.
 
+There is also a third, unsigned release workflow —
+`.github/workflows/github-release.yml` (monthly Linux AppImages + Windows zip
++ Android APK on GitHub Releases) — which needs no signing material: it is
+enabled by creating the repository **variable** (not secret)
+`PICASIM_PUBLISH_RELEASES` with value `true` under **Settings → Secrets and
+variables → Actions → Variables**, or via CLI:
+
+```bash
+gh variable set PICASIM_PUBLISH_RELEASES --repo RobertoD91/PicaSim --body "true"
+```
+
 ## Required secrets
 
 | Secret | Contents | Used by |
