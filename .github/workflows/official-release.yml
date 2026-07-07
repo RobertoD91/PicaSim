@@ -1,0 +1,413 @@
+name: Official Release
+
+# Manually-triggered full release: builds every platform and publishes a
+# normal (non-prerelease) GitHub Release tagged v<version> (from
+# VERSIONS.txt), marked as Latest.
+#
+# Assets: Linux AppImages (x86_64 + aarch64), Windows x64 zip, Android debug
+# APK, and a universal macOS DMG. If the macOS signing secrets are configured
+# (MACOS_CERT_P12_BASE64, MACOS_CERT_PASSWORD, APP_STORE_CONNECT_* — see
+# RELEASE_SIGNING.md) the DMG is signed and notarized; otherwise it is
+# published unsigned. iOS is distributed via TestFlight (ios-testflight.yml),
+# not as a release asset.
+#
+# The published artifacts are downloaded by end users, so this workflow uses
+# no third-party actions (only actions/* from GitHub itself).
+
+on:
+  workflow_dispatch:
+    inputs:
+      overwrite:
+        description: 'Replace the release if the tag already exists'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  build-linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            configure_preset: linux-x64
+            build_preset: linux-x64-release
+            runner: ubuntu-24.04
+          - arch: arm64
+            configure_preset: linux-arm64
+            build_preset: linux-arm64-release
+            runner: ubuntu-24.04-arm
+
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    name: Build Linux (${{ matrix.arch }})
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake ninja-build g++ \
+            libgl-dev libgles-dev libegl-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev \
+            libxfixes-dev libxss-dev libxkbcommon-dev \
+            libasound2-dev libpulse-dev libdbus-1-dev \
+            libwayland-dev libpipewire-0.3-dev \
+            rsync
+
+      - name: Configure CMake
+        run: |
+          cmake --preset ${{ matrix.configure_preset }}
+
+      - name: Build Release
+        run: |
+          cmake --build --preset ${{ matrix.build_preset }}
+
+      - name: Create AppImage
+        run: |
+          ./linux_create_appimage.sh build/${{ matrix.configure_preset }} dist
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-linux-${{ matrix.arch }}
+          path: dist/PicaSim-*.AppImage
+          retention-days: 1
+
+  build-windows:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    name: Build Windows (x64)
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup vcpkg
+        run: |
+          $commit = (Get-Content vcpkg.json | ConvertFrom-Json).'builtin-baseline'
+          git clone https://github.com/microsoft/vcpkg "$env:RUNNER_TEMP\vcpkg"
+          git -C "$env:RUNNER_TEMP\vcpkg" checkout $commit
+          & "$env:RUNNER_TEMP\vcpkg\bootstrap-vcpkg.bat" -disableMetrics
+          "VCPKG_ROOT=$env:RUNNER_TEMP\vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Configure CMake
+        run: |
+          cmake --preset windows-x64
+
+      - name: Build Release
+        run: |
+          cmake --build --preset windows-x64-release
+
+      - name: Install and package
+        run: |
+          cmake --install build/windows-x64 --config Release
+          $ver = (Select-String -Path VERSIONS.txt -Pattern 'Version ([0-9.]+)').Matches[0].Groups[1].Value
+          Compress-Archive -Path "dist/PicaSim-$ver" -DestinationPath "PicaSim-$ver-windows-x64.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: PicaSim-*-windows-x64.zip
+          retention-days: 1
+
+  build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    name: Build Android (APK)
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Install NDK
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" --install "ndk;25.2.9519653"
+
+      - name: Generate asset manifest
+        run: |
+          python3 tools/generate_asset_manifest.py data data/assets_manifest.txt packaging_excludes.txt
+
+      - name: Build debug APK
+        working-directory: android
+        run: |
+          ./gradlew assembleDebug
+
+      - name: Rename APK
+        run: |
+          VERSION=$(grep -oE 'Version [0-9.]+' VERSIONS.txt | head -1 | sed 's/Version //')
+          cp android/app/build/outputs/apk/debug/app-debug.apk "PicaSim-${VERSION}-android-debug.apk"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-android
+          path: PicaSim-*-android-debug.apk
+          retention-days: 1
+
+  # Signing is optional for the official release: with the macOS secrets the
+  # DMG is signed + notarized, without them it is published unsigned.
+  check-macos-secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      ok: ${{ steps.check.outputs.ok }}
+    steps:
+      - name: Check macOS signing secrets
+        id: check
+        env:
+          SECRETS_PRESENT: ${{ secrets.MACOS_CERT_P12_BASE64 != '' && secrets.MACOS_CERT_PASSWORD != '' && secrets.APP_STORE_CONNECT_KEY_ID != '' && secrets.APP_STORE_CONNECT_ISSUER_ID != '' && secrets.APP_STORE_CONNECT_API_KEY_BASE64 != '' }}
+        run: |
+          echo "ok=$SECRETS_PRESENT" >> "$GITHUB_OUTPUT"
+          if [ "$SECRETS_PRESENT" != "true" ]; then
+            echo "macOS signing secrets not configured: the DMG will be published unsigned." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  build-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            configure_preset: macos-arm64
+            build_preset: macos-arm64-release
+            runner: macos-latest
+          - arch: x86_64
+            configure_preset: macos-x64
+            build_preset: macos-x64-release
+            runner: macos-15-intel
+
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    name: Build macOS (${{ matrix.arch }})
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup vcpkg
+        run: |
+          VCPKG_COMMIT=$(jq -r '."builtin-baseline"' vcpkg.json)
+          git clone https://github.com/microsoft/vcpkg "$RUNNER_TEMP/vcpkg"
+          git -C "$RUNNER_TEMP/vcpkg" checkout "$VCPKG_COMMIT"
+          "$RUNNER_TEMP/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+          echo "VCPKG_ROOT=$RUNNER_TEMP/vcpkg" >> "$GITHUB_ENV"
+
+      - name: Configure CMake
+        run: |
+          cmake --preset ${{ matrix.configure_preset }}
+
+      - name: Build
+        run: |
+          cmake --build --preset ${{ matrix.build_preset }}
+
+      - name: Install
+        run: |
+          cmake --install build/${{ matrix.configure_preset }} --config Release
+
+      - name: Create app bundle
+        run: |
+          ./macos_create_app_bundle.sh dist/PicaSim-*/ dist
+
+      - name: Package app bundle
+        run: |
+          tar -czf picasim-app-${{ matrix.arch }}.tar.gz -C dist PicaSim.app
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: official-macos-app-${{ matrix.arch }}
+          path: picasim-app-${{ matrix.arch }}.tar.gz
+          retention-days: 1
+
+  macos-dmg:
+    name: Create macOS DMG (signed if secrets present)
+    needs: [build-macos, check-macos-secrets]
+    runs-on: macos-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download ARM64 build
+        uses: actions/download-artifact@v4
+        with:
+          name: official-macos-app-arm64
+
+      - name: Download x86_64 build
+        uses: actions/download-artifact@v4
+        with:
+          name: official-macos-app-x86_64
+
+      - name: Create universal app bundle
+        run: |
+          mkdir dist-arm64 dist-x86_64 dist
+          tar -xzf picasim-app-arm64.tar.gz -C dist-arm64
+          tar -xzf picasim-app-x86_64.tar.gz -C dist-x86_64
+
+          cp -R dist-arm64/PicaSim.app dist/PicaSim.app
+
+          lipo -create \
+            dist-arm64/PicaSim.app/Contents/MacOS/PicaSim \
+            dist-x86_64/PicaSim.app/Contents/MacOS/PicaSim \
+            -output dist/PicaSim.app/Contents/MacOS/PicaSim
+          chmod +x dist/PicaSim.app/Contents/MacOS/PicaSim dist/PicaSim.app/Contents/MacOS/PicaSim-launcher
+
+          lipo -info dist/PicaSim.app/Contents/MacOS/PicaSim
+
+      - name: Import Developer ID certificate
+        if: needs.check-macos-secrets.outputs.ok == 'true'
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/picasim-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          CERT_PATH="$RUNNER_TEMP/developer-id.p12"
+          echo -n "$MACOS_CERT_P12_BASE64" | base64 --decode > "$CERT_PATH"
+          security import "$CERT_PATH" -P "$MACOS_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          rm -f "$CERT_PATH"
+
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" \
+            | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)
+          if [ -z "$IDENTITY" ]; then
+            echo "ERROR: no 'Developer ID Application' identity found in the imported certificate."
+            exit 1
+          fi
+          echo "SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+
+      - name: Sign, create DMG and notarize
+        if: needs.check-macos-secrets.outputs.ok == 'true'
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
+          PICASIM_NOTARY_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          PICASIM_NOTARY_ISSUER: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          API_KEY_PATH="$RUNNER_TEMP/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
+          echo -n "$APP_STORE_CONNECT_API_KEY_BASE64" | base64 --decode > "$API_KEY_PATH"
+          echo "API_KEY_PATH=$API_KEY_PATH" >> "$GITHUB_ENV"
+
+          PICASIM_MACOS_CERT="$SIGNING_IDENTITY" \
+          PICASIM_NOTARY_KEY_FILE="$API_KEY_PATH" \
+          ./macos_notarize.sh
+
+      - name: Create unsigned DMG
+        if: needs.check-macos-secrets.outputs.ok != 'true'
+        run: |
+          ./macos_create_dmg.sh dist/PicaSim.app dist
+
+      - name: Prepare DMG asset
+        run: |
+          VERSION=$(grep -oE 'Version [0-9.]+' VERSIONS.txt | head -1 | sed 's/Version //')
+          mv "dist/PicaSim-${VERSION}.dmg" "PicaSim-${VERSION}-macos-universal.dmg"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          path: PicaSim-*-macos-universal.dmg
+          retention-days: 1
+
+      - name: Clean up signing material
+        if: always()
+        run: |
+          if [ -n "${KEYCHAIN_PATH:-}" ] && [ -f "$KEYCHAIN_PATH" ]; then
+            security delete-keychain "$KEYCHAIN_PATH"
+          fi
+          if [ -n "${API_KEY_PATH:-}" ]; then
+            rm -f "$API_KEY_PATH"
+          fi
+
+  publish:
+    name: Publish official release
+    needs: [build-linux, build-windows, build-android, macos-dmg, check-macos-secrets]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: assets
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MACOS_SIGNED: ${{ needs.check-macos-secrets.outputs.ok }}
+        run: |
+          VERSION=$(grep -oE 'Version [0-9.]+' VERSIONS.txt | head -1 | sed 's/Version //')
+          TAG="v${VERSION}"
+
+          ls -lh assets/
+
+          if [ "$MACOS_SIGNED" = "true" ]; then
+            MACOS_LINE="- **macOS**: universal DMG (arm64 + x86_64), signed and notarized"
+          else
+            MACOS_LINE="- **macOS**: universal DMG (arm64 + x86_64), **unsigned** (right-click → Open on first launch)"
+          fi
+
+          {
+            echo "PicaSim ${VERSION}, built from commit ${GITHUB_SHA}."
+            echo ""
+            echo "- **Linux**: AppImage for x86_64 and aarch64 (\`chmod +x\` and run)"
+            echo "- **Windows**: x64 zip (extract and run PicaSim.exe)"
+            echo "- **Android**: debug APK for sideloading"
+            echo "$MACOS_LINE"
+            echo ""
+            echo "iOS is distributed via TestFlight."
+          } > "$RUNNER_TEMP/release-notes.md"
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            if [ "${{ inputs.overwrite }}" = "true" ]; then
+              echo "Release $TAG exists and overwrite requested: deleting it (and its tag) first."
+              gh release delete "$TAG" --cleanup-tag --yes --repo "$GITHUB_REPOSITORY"
+            else
+              echo "ERROR: release $TAG already exists. Re-run with overwrite=true to replace it,"
+              echo "or bump the version in VERSIONS.txt."
+              exit 1
+            fi
+          fi
+
+          gh release create "$TAG" assets/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "PicaSim $VERSION" \
+            --latest \
+            --notes-file "$RUNNER_TEMP/release-notes.md"

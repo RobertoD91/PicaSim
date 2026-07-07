@@ -1,9 +1,11 @@
 name: GitHub Release
 
-# Monthly multi-platform release of the unsigned builds: Linux AppImages
-# (x86_64 + aarch64), Windows x64 zip and Android debug APK. The signed macOS
-# DMG and the TestFlight build are handled by their own workflows
-# (macos-release.yml, ios-testflight.yml).
+# Monthly multi-platform PRE-release of the unsigned builds: Linux AppImages
+# (x86_64 + aarch64), Windows x64 zip and Android debug APK. Only the 3 most
+# recent monthly prereleases are kept; older ones (and their tags) are
+# deleted. The signed macOS DMG and the TestFlight build are handled by their
+# own workflows (macos-release.yml, ios-testflight.yml); proper "full"
+# releases are made manually via official-release.yml.
 #
 # Publishing is opt-in: the workflow only runs when the repository variable
 # PICASIM_PUBLISH_RELEASES is set to 'true' (Settings → Secrets and variables
@@ -198,13 +200,15 @@ jobs:
           ls -lh assets/
 
           {
-            echo "Automated multi-platform build of PicaSim ${VERSION} from commit ${GITHUB_SHA}."
+            echo "Automated monthly multi-platform build of PicaSim ${VERSION} from commit ${GITHUB_SHA}."
             echo ""
             echo "- **Linux**: AppImage for x86_64 and aarch64 (\`chmod +x\` and run)"
             echo "- **Windows**: x64 zip (extract and run PicaSim.exe)"
             echo "- **Android**: debug APK for sideloading"
             echo ""
-            echo "The signed and notarized macOS DMG is published separately by the 'macOS Signed Release' workflow."
+            echo "This is a rolling monthly pre-release: only the 3 most recent are kept."
+            echo "For stable downloads use the latest full release. The signed and notarized"
+            echo "macOS DMG is published separately by the 'macOS Signed Release' workflow."
           } > "$RUNNER_TEMP/release-notes.md"
 
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
@@ -214,6 +218,21 @@ jobs:
             gh release create "$TAG" assets/* \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "PicaSim $VERSION" \
+              --title "PicaSim $VERSION (monthly)" \
+              --prerelease \
               --notes-file "$RUNNER_TEMP/release-notes.md"
           fi
+
+      # Rolling retention: keep only the 3 most recent monthly prereleases
+      # (tags like v1.4.0-20260801); delete older ones together with their tags.
+      - name: Prune old monthly prereleases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,createdAt \
+            | jq -r '[ .[] | select(.tagName | test("^v[0-9.]+-[0-9]{8}$")) ]
+                     | sort_by(.createdAt) | reverse | .[3:] | .[].tagName' \
+            | while read -r OLD_TAG; do
+                echo "Deleting old monthly prerelease: $OLD_TAG"
+                gh release delete "$OLD_TAG" --cleanup-tag --yes --repo "$GITHUB_REPOSITORY"
+              done

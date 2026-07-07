@@ -1,6 +1,9 @@
 name: macOS Signed Release
 
-# Monthly signed + notarized universal DMG published to GitHub Releases.
+# Monthly signed + notarized universal DMG published as a GitHub PRE-release.
+# Only the 3 most recent monthly prereleases are kept; older ones (and their
+# tags) are deleted. Proper "full" releases are made manually via
+# official-release.yml.
 #
 # The workflow does not hardcode a repository name: a preliminary job checks
 # that the required signing secrets are configured and skips everything
@@ -219,12 +222,33 @@ jobs:
             echo "Built automatically from commit $GITHUB_SHA."
           } > "$RUNNER_TEMP/release-notes.md"
 
-          gh release create "${{ steps.asset.outputs.tag }}" \
-            "${{ steps.asset.outputs.asset }}" \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
-            --title "PicaSim ${{ steps.asset.outputs.version }} (macOS)" \
-            --notes-file "$RUNNER_TEMP/release-notes.md"
+          TAG="${{ steps.asset.outputs.tag }}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "Release $TAG already exists, uploading assets (clobber)."
+            gh release upload "$TAG" "${{ steps.asset.outputs.asset }}" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" \
+              "${{ steps.asset.outputs.asset }}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "PicaSim ${{ steps.asset.outputs.version }} (macOS monthly)" \
+              --prerelease \
+              --notes-file "$RUNNER_TEMP/release-notes.md"
+          fi
+
+      # Rolling retention: keep only the 3 most recent monthly macOS
+      # prereleases (tags like v1.4.0-macos-20260801).
+      - name: Prune old monthly prereleases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName,createdAt \
+            | jq -r '[ .[] | select(.tagName | test("^v[0-9.]+-macos-[0-9]{8}$")) ]
+                     | sort_by(.createdAt) | reverse | .[3:] | .[].tagName' \
+            | while read -r OLD_TAG; do
+                echo "Deleting old monthly prerelease: $OLD_TAG"
+                gh release delete "$OLD_TAG" --cleanup-tag --yes --repo "$GITHUB_REPOSITORY"
+              done
 
       - name: Clean up signing material
         if: always()
