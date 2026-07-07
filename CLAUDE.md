@@ -190,7 +190,9 @@ GitHub Actions workflows in `.github/workflows/`:
 
 The build workflows trigger on push to `main` and `refactor1`, plus `workflow_dispatch`. Concurrency is set per workflow+branch to cancel in-progress runs on new pushes.
 
-The two release workflows (`ios-testflight.yml`, `macos-release.yml`) run on a monthly cron plus `workflow_dispatch`. They do not hardcode a repository name: a `check-secrets` job verifies that the required signing secrets are configured and skips everything otherwise, so they are a no-op on forks without secrets. The required secrets are listed in each workflow's header comment (Apple Distribution / Developer ID certificate, App Store provisioning profile, App Store Connect API key). TestFlight uploads need a strictly increasing `CFBundleVersion`, provided via the `PICASIM_IOS_BUILD_NUMBER` CMake cache variable (set to the workflow run number in CI).
+The two release workflows (`ios-testflight.yml`, `macos-release.yml`) run on a monthly cron plus `workflow_dispatch`. They do not hardcode a repository name: a `check-secrets` job verifies that the required signing secrets are configured and skips everything otherwise, so they are a no-op on forks without secrets. See `RELEASE_SIGNING.md` for how to create the signing material and upload the secrets. TestFlight uploads need a strictly increasing `CFBundleVersion`, provided via the `PICASIM_IOS_BUILD_NUMBER` CMake cache variable (set to the workflow run number in CI).
+
+Security rule for the release workflows: they handle signing material, so they must not use third-party actions (only `actions/*` from GitHub itself) — releases are published with the preinstalled `gh` CLI and vcpkg is cloned manually pinned to the `builtin-baseline` from `vcpkg.json`. Rationale in `RELEASE_SIGNING.md`.
 
 ## Distribution Scripts
 

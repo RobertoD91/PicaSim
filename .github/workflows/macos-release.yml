@@ -18,8 +18,10 @@ on:
     - cron: '0 4 1 * *'  # 04:00 UTC on the 1st of every month
   workflow_dispatch:
 
+# Only the release job needs to write (to create the release); everything
+# else runs with a read-only token.
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}
@@ -65,8 +67,17 @@ jobs:
         with:
           submodules: recursive
 
+      # vcpkg is set up manually, pinned to the manifest baseline commit,
+      # instead of via a third-party action: this build's output gets signed
+      # with the Developer ID certificate, so no third-party workflow code
+      # runs in this workflow. See RELEASE_SIGNING.md.
       - name: Setup vcpkg
-        uses: lukka/run-vcpkg@v11
+        run: |
+          VCPKG_COMMIT=$(jq -r '."builtin-baseline"' vcpkg.json)
+          git clone https://github.com/microsoft/vcpkg "$RUNNER_TEMP/vcpkg"
+          git -C "$RUNNER_TEMP/vcpkg" checkout "$VCPKG_COMMIT"
+          "$RUNNER_TEMP/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+          echo "VCPKG_ROOT=$RUNNER_TEMP/vcpkg" >> "$GITHUB_ENV"
 
       - name: Configure CMake
         run: |
@@ -101,6 +112,8 @@ jobs:
     needs: build-macos
     runs-on: macos-latest
     timeout-minutes: 90
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -190,16 +203,26 @@ jobs:
           echo "asset=$ASSET" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
+      # Published with the preinstalled GitHub CLI rather than a third-party
+      # action: the signing keychain and the App Store Connect API key are on
+      # this runner, so no third-party workflow code runs in this job.
+      # See RELEASE_SIGNING.md.
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.asset.outputs.tag }}
-          name: PicaSim ${{ steps.asset.outputs.version }} (macOS)
-          files: ${{ steps.asset.outputs.asset }}
-          body: |
-            Signed and notarized universal (arm64 + x86_64) macOS build of PicaSim ${{ steps.asset.outputs.version }}.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "Signed and notarized universal (arm64 + x86_64) macOS build of PicaSim ${{ steps.asset.outputs.version }}."
+            echo ""
+            echo "Built automatically from commit $GITHUB_SHA."
+          } > "$RUNNER_TEMP/release-notes.md"
 
-            Built automatically from commit ${{ github.sha }}.
+          gh release create "${{ steps.asset.outputs.tag }}" \
+            "${{ steps.asset.outputs.asset }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "PicaSim ${{ steps.asset.outputs.version }} (macOS)" \
+            --notes-file "$RUNNER_TEMP/release-notes.md"
 
       - name: Clean up signing material
         if: always()
