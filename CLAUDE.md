@@ -188,7 +188,7 @@ GitHub Actions workflows in `.github/workflows/`:
 - `ios-testflight.yml` - Monthly (1st of each month) signed build uploaded to TestFlight
 - `macos-release.yml` - Monthly signed + notarized universal DMG published to GitHub Releases
 
-The build workflows trigger on push to `main` and `refactor1`, plus `workflow_dispatch`. Concurrency is set per workflow+branch to cancel in-progress runs on new pushes.
+The build workflows trigger on push to `main` and `refactor1`, plus `workflow_dispatch`; all except `macos-build.yml` also run on pull requests to `main`. Concurrency is set per workflow+branch to cancel in-progress runs on new pushes, and every job has a `timeout-minutes`. Linux and macOS builds use ccache (persisted via `actions/cache`, keyed per architecture) so warm builds skip recompiling the third-party submodules.
 
 The two release workflows (`ios-testflight.yml`, `macos-release.yml`) run on a monthly cron plus `workflow_dispatch`. They do not hardcode a repository name: a `check-secrets` job verifies that the required signing secrets are configured and skips everything otherwise, so they are a no-op on forks without secrets. See `RELEASE_SIGNING.md` for how to create the signing material and upload the secrets. TestFlight uploads need a strictly increasing `CFBundleVersion`, provided via the `PICASIM_IOS_BUILD_NUMBER` CMake cache variable (set to the workflow run number in CI).
 

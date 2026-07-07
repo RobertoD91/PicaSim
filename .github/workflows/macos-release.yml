@@ -30,6 +30,7 @@ concurrency:
 jobs:
   check-secrets:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       ok: ${{ steps.check.outputs.ok }}
     steps:
@@ -60,6 +61,7 @@ jobs:
             runner: macos-15-intel
 
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
     name: Build macOS (${{ matrix.arch }})
 
     steps:

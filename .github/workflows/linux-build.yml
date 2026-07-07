@@ -3,7 +3,8 @@ name: Linux Build
 on:
   push:
     branches:
-      - '**'
+      - main
+      - refactor1
   pull_request:
     branches:
       - main
@@ -31,6 +32,9 @@ jobs:
             appimage_arch: aarch64
 
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    env:
+      CCACHE_MAXSIZE: 500M
 
     steps:
       - uses: actions/checkout@v4
@@ -41,7 +45,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            cmake ninja-build g++ \
+            cmake ninja-build g++ ccache \
             libgl-dev libgles-dev libegl-dev \
             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev \
             libxfixes-dev libxss-dev libxkbcommon-dev \
@@ -49,13 +53,26 @@ jobs:
             libwayland-dev libpipewire-0.3-dev \
             rsync
 
+      # Compiler cache: third-party sources (SDL2, OpenAL, Bullet, ...) rarely
+      # change, so warm-cache builds skip most of the compilation.
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-linux-${{ matrix.arch }}-${{ github.sha }}
+          restore-keys: |
+            ccache-linux-${{ matrix.arch }}-
+
       - name: Configure CMake
         run: |
-          cmake --preset ${{ matrix.configure_preset }}
+          cmake --preset ${{ matrix.configure_preset }} \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Build Release
         run: |
           cmake --build --preset ${{ matrix.build_preset }}
+          ccache --show-stats
 
       - name: Create AppImage
         run: |

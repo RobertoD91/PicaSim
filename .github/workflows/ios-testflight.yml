@@ -33,6 +33,7 @@ concurrency:
 jobs:
   check-secrets:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       ok: ${{ steps.check.outputs.ok }}
     steps:
