@@ -104,11 +104,24 @@ jobs:
           echo -n "$APP_STORE_CONNECT_API_KEY_BASE64" | base64 --decode > "$API_KEY_PATH"
           echo "API_KEY_PATH=$API_KEY_PATH" >> "$GITHUB_ENV"
 
+      # CMake's Xcode generator does not create schemes by default (locally
+      # Xcode auto-creates them when the project is opened in the GUI, which
+      # never happens in CI), so ask CMake to generate shared schemes.
       - name: Configure CMake
         run: |
           cmake --preset ios-device \
             -DCMAKE_XCODE_GENERATE_SCHEME=ON \
             -DPICASIM_IOS_BUILD_NUMBER=${{ github.run_number }}.${{ github.run_attempt }}
+
+      - name: Verify generated project and schemes
+        run: |
+          xcodebuild -list -project build/ios-device/PicaSim.xcodeproj
+          SCHEME_FILE="build/ios-device/PicaSim.xcodeproj/xcshareddata/xcschemes/PicaSim.xcscheme"
+          if [ ! -f "$SCHEME_FILE" ]; then
+            echo "ERROR: 'PicaSim' shared scheme not found at $SCHEME_FILE."
+            echo "CMAKE_XCODE_GENERATE_SCHEME did not generate schemes as expected."
+            exit 1
+          fi
 
       # Same two-step process as ios_archive.sh: first build with CMake's
       # hardcoded CONFIGURATION_BUILD_DIR so static libraries land where the
