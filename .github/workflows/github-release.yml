@@ -149,6 +149,31 @@ jobs:
           yes | "$SDKMANAGER" --licenses > /dev/null || true
           "$SDKMANAGER" --install "ndk;25.2.9519653"
 
+      # Optional custom signing: set the ANDROID_KEYSTORE_BASE64,
+      # ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD
+      # secrets to sign with your own key. Without them (e.g. on fork PRs,
+      # where secrets are unavailable) the build falls back to the debug
+      # keystore committed in android/.
+      - name: Set up signing keystore (optional)
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
+            echo -n "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/picasim.keystore"
+            {
+              echo "PICASIM_KEYSTORE_FILE=$RUNNER_TEMP/picasim.keystore"
+              echo "PICASIM_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD"
+              echo "PICASIM_KEY_ALIAS=$ANDROID_KEY_ALIAS"
+              echo "PICASIM_KEY_PASSWORD=$ANDROID_KEY_PASSWORD"
+            } >> "$GITHUB_ENV"
+            echo "Signing with the custom keystore from secrets."
+          else
+            echo "Signing secrets not (fully) configured - using the repo debug keystore."
+          fi
+
       - name: Generate asset manifest
         run: |
           python3 tools/generate_asset_manifest.py data data/assets_manifest.txt packaging_excludes.txt
@@ -156,12 +181,12 @@ jobs:
       - name: Build debug APK
         working-directory: android
         run: |
-          ./gradlew assembleDebug
+          ./gradlew assemblePhoneDebug
 
       - name: Rename APK
         run: |
           VERSION=$(grep -oE 'Version [0-9.]+' VERSIONS.txt | head -1 | sed 's/Version //')
-          cp android/app/build/outputs/apk/debug/app-debug.apk "PicaSim-${VERSION}-android-debug.apk"
+          cp android/app/build/outputs/apk/phone/debug/app-phone-debug.apk "PicaSim-${VERSION}-android-debug.apk"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

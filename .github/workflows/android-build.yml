@@ -47,20 +47,60 @@ jobs:
           restore-keys: |
             gradle-
 
+      # Optional custom signing: set the ANDROID_KEYSTORE_BASE64,
+      # ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD
+      # secrets to sign with your own key. Without them (e.g. on fork PRs,
+      # where secrets are unavailable) the build falls back to the debug
+      # keystore committed in android/.
+      - name: Set up signing keystore (optional)
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
+            echo -n "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/picasim.keystore"
+            {
+              echo "PICASIM_KEYSTORE_FILE=$RUNNER_TEMP/picasim.keystore"
+              echo "PICASIM_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD"
+              echo "PICASIM_KEY_ALIAS=$ANDROID_KEY_ALIAS"
+              echo "PICASIM_KEY_PASSWORD=$ANDROID_KEY_PASSWORD"
+            } >> "$GITHUB_ENV"
+            echo "Signing with the custom keystore from secrets."
+          else
+            echo "Signing secrets not (fully) configured - using the repo debug keystore."
+          fi
+
       - name: Generate asset manifest
         run: |
           python3 tools/generate_asset_manifest.py data data/assets_manifest.txt packaging_excludes.txt
 
-      - name: Build debug APK
+      - name: Build debug APKs (phone + quest)
         working-directory: android
         run: |
-          ./gradlew assembleDebug
+          ./gradlew assemblePhoneDebug assembleQuestDebug -PpicasimBuildNumber=${{ github.run_number }}
 
-      - name: Upload debug APK
+      - name: Upload phone debug APK
         uses: actions/upload-artifact@v4
         with:
           name: picasim-android-debug
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: android/app/build/outputs/apk/phone/debug/app-phone-debug.apk
+          retention-days: 14
+
+      # Name the quest APK with the bundle id, version (VERSIONS.txt) and CI
+      # build number so sideloaded builds are identifiable on the headset.
+      - name: Rename quest APK
+        run: |
+          VERSION=$(grep -oE 'Version [0-9.]+' VERSIONS.txt | head -1 | sed 's/Version //')
+          cp android/app/build/outputs/apk/quest/debug/app-quest-debug.apk \
+             "com.rowlhouse.picasim-quest-v${VERSION}-b${{ github.run_number }}.apk"
+
+      - name: Upload quest debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: picasim-quest-debug
+          path: com.rowlhouse.picasim-quest-v*.apk
           retention-days: 14
 
   # Smoke test: install the APK on an emulator and verify it doesn't crash at startup.
@@ -99,21 +139,9 @@ jobs:
           target: default
           arch: x86_64
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
-          script: |
-            adb install apk/app-debug.apk
-            adb shell am start -n com.rowlhouse.picasim/.PicaSimActivity
-            # Poll for up to 60 seconds for the process to appear
-            for i in $(seq 1 12); do
-              sleep 5
-              if adb shell ps -A | grep -q com.rowlhouse.picasim; then
-                echo "PicaSim is running OK"
-                exit 0
-              fi
-              echo "Waiting for PicaSim... ($((i*5))s)"
-            done
-            echo "PicaSim did not start within 60 seconds"
-            adb logcat -d | grep -E "com.rowlhouse.picasim|SDL|FATAL|AndroidRuntime" | tail -100
-            exit 1
+          # The action runs each script line as a separate sh -c command, so
+          # multi-line shell constructs break - keep the logic in a script.
+          script: ./tools/android_smoke_test.sh
 
       - name: Collect logs
         if: always()

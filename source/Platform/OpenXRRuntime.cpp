@@ -5,9 +5,13 @@
 #include "Window.h"
 #include "../Framework/Trace.h"
 
+#ifdef PICASIM_ANDROID
+#include <SDL.h>
+#else
 #include <glad/glad.h>
 #include <SDL.h>
 #include <SDL_syswm.h>
+#endif
 
 #include <cstring>
 #include <algorithm>
@@ -146,6 +150,45 @@ bool OpenXRRuntime::IsHMDConnected() const
 //======================================================================================================================
 bool OpenXRRuntime::CreateInstance()
 {
+#ifdef PICASIM_ANDROID
+    // Get the JavaVM and activity from SDL - needed by both the loader and instance creation
+    JNIEnv* env = (JNIEnv*)SDL_AndroidGetJNIEnv();
+    if (!env)
+    {
+        TRACE_FILE_IF(ONCE_1) TRACE("OpenXRRuntime::CreateInstance - Failed to get JNI environment");
+        return false;
+    }
+
+    JavaVM* vm = nullptr;
+    env->GetJavaVM(&vm);
+    jobject activity = (jobject)SDL_AndroidGetActivity();
+    if (!vm || !activity)
+    {
+        TRACE_FILE_IF(ONCE_1) TRACE("OpenXRRuntime::CreateInstance - Failed to get JavaVM/activity from SDL");
+        return false;
+    }
+
+    // The Android OpenXR loader must be initialised with the JavaVM and activity
+    // before any other OpenXR call (including extension enumeration)
+    static bool loaderInitialized = false;
+    if (!loaderInitialized)
+    {
+        PFN_xrInitializeLoaderKHR xrInitializeLoaderKHR = nullptr;
+        XR_CHECK(xrGetInstanceProcAddr(XR_NULL_HANDLE, "xrInitializeLoaderKHR",
+            (PFN_xrVoidFunction*)&xrInitializeLoaderKHR));
+
+        XrLoaderInitInfoAndroidKHR loaderInitInfo = {};
+        loaderInitInfo.type = XR_TYPE_LOADER_INIT_INFO_ANDROID_KHR;
+        loaderInitInfo.next = nullptr;
+        loaderInitInfo.applicationVM = vm;
+        loaderInitInfo.applicationContext = activity;
+
+        XR_CHECK(xrInitializeLoaderKHR((const XrLoaderInitInfoBaseHeaderKHR*)&loaderInitInfo));
+        loaderInitialized = true;
+        TRACE_FILE_IF(ONCE_2) TRACE("OpenXRRuntime::CreateInstance - Android loader initialised");
+    }
+#endif
+
     // Query available extensions
     uint32_t extensionCount = 0;
     XR_CHECK(xrEnumerateInstanceExtensionProperties(nullptr, 0, &extensionCount, nullptr));
@@ -158,11 +201,16 @@ bool OpenXRRuntime::CreateInstance()
     }
     XR_CHECK(xrEnumerateInstanceExtensionProperties(nullptr, extensionCount, &extensionCount, extensions.data()));
 
-    // Check for OpenGL extension
+    // Check for the graphics binding extension
+#ifdef PICASIM_ANDROID
+    const char* graphicsExtension = XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME;
+#else
+    const char* graphicsExtension = XR_KHR_OPENGL_ENABLE_EXTENSION_NAME;
+#endif
     bool hasOpenGL = false;
     for (const auto& ext : extensions)
     {
-        if (strcmp(ext.extensionName, XR_KHR_OPENGL_ENABLE_EXTENSION_NAME) == 0)
+        if (strcmp(ext.extensionName, graphicsExtension) == 0)
         {
             hasOpenGL = true;
             break;
@@ -171,14 +219,21 @@ bool OpenXRRuntime::CreateInstance()
 
     if (!hasOpenGL)
     {
-        TRACE_FILE_IF(ONCE_1) TRACE("OpenXRRuntime::CreateInstance - OpenGL extension not available");
+        TRACE_FILE_IF(ONCE_1) TRACE("OpenXRRuntime::CreateInstance - %s extension not available", graphicsExtension);
         return false;
     }
 
     // Required extensions
+#ifdef PICASIM_ANDROID
+    const char* enabledExtensions[] = {
+        XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME,
+        XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME
+    };
+#else
     const char* enabledExtensions[] = {
         XR_KHR_OPENGL_ENABLE_EXTENSION_NAME
     };
+#endif
 
     // Create instance
     XrInstanceCreateInfo createInfo = {};
@@ -192,8 +247,18 @@ bool OpenXRRuntime::CreateInstance()
     createInfo.applicationInfo.apiVersion = XR_CURRENT_API_VERSION;
     createInfo.enabledApiLayerCount = 0;
     createInfo.enabledApiLayerNames = nullptr;
-    createInfo.enabledExtensionCount = 1;
+    createInfo.enabledExtensionCount = (uint32_t)(sizeof(enabledExtensions) / sizeof(enabledExtensions[0]));
     createInfo.enabledExtensionNames = enabledExtensions;
+
+#ifdef PICASIM_ANDROID
+    // Pass the JavaVM and activity to the runtime
+    XrInstanceCreateInfoAndroidKHR androidCreateInfo = {};
+    androidCreateInfo.type = XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR;
+    androidCreateInfo.next = nullptr;
+    androidCreateInfo.applicationVM = vm;
+    androidCreateInfo.applicationActivity = activity;
+    createInfo.next = &androidCreateInfo;
+#endif
 
     XR_CHECK(xrCreateInstance(&createInfo, &mInstance));
 
@@ -313,6 +378,51 @@ void OpenXRRuntime::DestroySession()
     DestroySessionInternal();
 }
 
+#ifdef PICASIM_ANDROID
+//----------------------------------------------------------------------------------------------------------------------
+// Find the EGLConfig matching the config ID of the given context. OpenXR's Android
+// graphics binding needs the EGLConfig, which SDL does not expose directly.
+static EGLConfig GetEGLConfigForContext(EGLDisplay display, EGLContext context)
+{
+    EGLint configId = 0;
+    if (!eglQueryContext(display, context, EGL_CONFIG_ID, &configId))
+    {
+        TRACE_FILE_IF(ONCE_1) TRACE("GetEGLConfigForContext - eglQueryContext failed: 0x%X", eglGetError());
+        return nullptr;
+    }
+
+    // EGL_CONFIG_ID matching ignores all other attributes, so this selects exactly one config
+    const EGLint attribs[] = { EGL_CONFIG_ID, configId, EGL_NONE };
+    EGLConfig config = nullptr;
+    EGLint numConfigs = 0;
+    if (eglChooseConfig(display, attribs, &config, 1, &numConfigs) && numConfigs == 1)
+    {
+        return config;
+    }
+
+    // Fall back to scanning all configs for the matching ID
+    EGLint totalConfigs = 0;
+    if (!eglGetConfigs(display, nullptr, 0, &totalConfigs) || totalConfigs <= 0)
+    {
+        return nullptr;
+    }
+    std::vector<EGLConfig> configs(totalConfigs);
+    if (!eglGetConfigs(display, configs.data(), totalConfigs, &totalConfigs))
+    {
+        return nullptr;
+    }
+    for (EGLint i = 0; i < totalConfigs; ++i)
+    {
+        EGLint id = 0;
+        if (eglGetConfigAttrib(display, configs[i], EGL_CONFIG_ID, &id) && id == configId)
+        {
+            return configs[i];
+        }
+    }
+    return nullptr;
+}
+#endif
+
 //----------------------------------------------------------------------------------------------------------------------
 bool OpenXRRuntime::CreateSessionInternal()
 {
@@ -355,6 +465,74 @@ bool OpenXRRuntime::CreateSessionInternal()
     graphicsBinding.next = nullptr;
     graphicsBinding.hDC = GetDC(wmInfo.info.win.window);
     graphicsBinding.hGLRC = (HGLRC)window->GetGLContext();
+
+    // Create session
+    XrSessionCreateInfo sessionInfo = {};
+    sessionInfo.type = XR_TYPE_SESSION_CREATE_INFO;
+    sessionInfo.next = &graphicsBinding;
+    sessionInfo.createFlags = 0;
+    sessionInfo.systemId = mSystemId;
+
+    XR_CHECK(xrCreateSession(mInstance, &sessionInfo, &mSession));
+
+    TRACE_FILE_IF(ONCE_1) TRACE("OpenXRRuntime::CreateSessionInternal - Session created");
+
+    // Create reference space
+    if (!CreateReferenceSpace())
+    {
+        DestroySessionInternal();
+        return false;
+    }
+
+    return true;
+#elif defined(PICASIM_ANDROID)
+    // The EGL context created by SDL must be current on this thread
+    Window* window = gWindow;
+    if (!window || !window->GetSDLWindow())
+    {
+        TRACE_FILE_IF(ONCE_1) TRACE("OpenXRRuntime::CreateSessionInternal - No window available");
+        return false;
+    }
+
+    // Get the OpenGL ES function to retrieve graphics requirements
+    PFN_xrGetOpenGLESGraphicsRequirementsKHR xrGetOpenGLESGraphicsRequirementsKHR = nullptr;
+    XR_CHECK(xrGetInstanceProcAddr(mInstance, "xrGetOpenGLESGraphicsRequirementsKHR",
+        (PFN_xrVoidFunction*)&xrGetOpenGLESGraphicsRequirementsKHR));
+
+    // Check graphics requirements
+    XrGraphicsRequirementsOpenGLESKHR graphicsReqs = {};
+    graphicsReqs.type = XR_TYPE_GRAPHICS_REQUIREMENTS_OPENGL_ES_KHR;
+    XR_CHECK(xrGetOpenGLESGraphicsRequirementsKHR(mInstance, mSystemId, &graphicsReqs));
+
+    TRACE_FILE_IF(ONCE_2) TRACE("OpenXRRuntime::CreateSessionInternal - OpenGL ES requirements: %d.%d to %d.%d",
+        XR_VERSION_MAJOR(graphicsReqs.minApiVersionSupported),
+        XR_VERSION_MINOR(graphicsReqs.minApiVersionSupported),
+        XR_VERSION_MAJOR(graphicsReqs.maxApiVersionSupported),
+        XR_VERSION_MINOR(graphicsReqs.maxApiVersionSupported));
+
+    // Get the EGL display/context that SDL made current on this thread
+    EGLDisplay display = eglGetCurrentDisplay();
+    EGLContext context = eglGetCurrentContext();
+    if (display == EGL_NO_DISPLAY || context == EGL_NO_CONTEXT)
+    {
+        TRACE_FILE_IF(ONCE_1) TRACE("OpenXRRuntime::CreateSessionInternal - No current EGL display/context");
+        return false;
+    }
+
+    EGLConfig config = GetEGLConfigForContext(display, context);
+    if (!config)
+    {
+        TRACE_FILE_IF(ONCE_1) TRACE("OpenXRRuntime::CreateSessionInternal - Failed to find EGL config");
+        return false;
+    }
+
+    // Create graphics binding
+    XrGraphicsBindingOpenGLESAndroidKHR graphicsBinding = {};
+    graphicsBinding.type = XR_TYPE_GRAPHICS_BINDING_OPENGL_ES_ANDROID_KHR;
+    graphicsBinding.next = nullptr;
+    graphicsBinding.display = display;
+    graphicsBinding.config = config;
+    graphicsBinding.context = context;
 
     // Create session
     XrSessionCreateInfo sessionInfo = {};
@@ -894,7 +1072,11 @@ bool OpenXRRuntime::CreateSwapchainsInternal()
         mSwapchains[eye].images.resize(imageCount);
         for (auto& img : mSwapchains[eye].images)
         {
+#ifdef PICASIM_ANDROID
+            img.type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+#else
             img.type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_KHR;
+#endif
             img.next = nullptr;
         }
 

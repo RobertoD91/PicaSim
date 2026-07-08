@@ -17,6 +17,13 @@ def parsedVersionCode = 2000000 +
     (versionParts[1] as int) * 100 +
     (versionParts[2] as int)
 
+// CI passes -PpicasimBuildNumber=<run number> so every CI build gets a
+// strictly increasing versionCode and installs as an update over the
+// previous one. Scheme: <2MMNNPP>000 + build (build capped at 999 so a
+// version bump always outranks any build number). Local builds get 0.
+def picasimBuildNumber = (project.hasProperty('picasimBuildNumber') ? project.property('picasimBuildNumber') as int : 0) % 1000
+parsedVersionCode = parsedVersionCode * 1000 + picasimBuildNumber
+
 // Load signing keystore properties (not committed to git)
 def keystorePropertiesFile = rootProject.file("keystore.properties")
 def keystoreProperties = new Properties()
@@ -35,6 +42,29 @@ android {
             keyAlias keystoreProperties['keyAlias'] ?: ''
             keyPassword keystoreProperties['keyPassword'] ?: ''
         }
+        // Debug signing, in order of preference:
+        // 1. A custom keystore provided via environment (CI secrets, see the
+        //    "Set up signing keystore" workflow step): PICASIM_KEYSTORE_FILE,
+        //    PICASIM_KEYSTORE_PASSWORD, PICASIM_KEY_ALIAS, PICASIM_KEY_PASSWORD.
+        // 2. Fallback: a keystore committed to the repo (standard Android
+        //    debug credentials, nothing sensitive) so that local and CI debug
+        //    builds all share one signature and can install over each other.
+        //    Without a stable key, every CI runner generates its own and adb
+        //    install fails with INSTALL_FAILED_UPDATE_INCOMPATIBLE.
+        debug {
+            def ciKeystore = System.getenv("PICASIM_KEYSTORE_FILE")
+            if (ciKeystore) {
+                storeFile file(ciKeystore)
+                storePassword System.getenv("PICASIM_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("PICASIM_KEY_ALIAS")
+                keyPassword System.getenv("PICASIM_KEY_PASSWORD")
+            } else {
+                storeFile rootProject.file("debug.keystore")
+                storePassword "android"
+                keyAlias "androiddebugkey"
+                keyPassword "android"
+            }
+        }
     }
 
     defaultConfig {
@@ -47,9 +77,39 @@ android {
         externalNativeBuild {
             cmake {
                 arguments "-DANDROID_STL=c++_shared",
-                          "-DPICASIM_ENABLE_VR=OFF",
                           "-DANDROID_APP_PLATFORM=android-21"
                 abiFilters 'arm64-v8a', 'x86_64'
+            }
+        }
+    }
+
+    // Prefab exposes native libraries from AARs (the Khronos OpenXR loader)
+    // to the CMake build via find_package(OpenXR CONFIG).
+    buildFeatures {
+        prefab true
+    }
+
+    // Product flavors: 'phone' is the regular Android build (VR off, unchanged
+    // behavior); 'quest' targets Meta Quest headsets with OpenXR VR support.
+    flavorDimensions "device"
+    productFlavors {
+        phone {
+            dimension "device"
+            externalNativeBuild {
+                cmake {
+                    arguments "-DPICASIM_ENABLE_VR=OFF"
+                }
+            }
+        }
+        quest {
+            dimension "device"
+            // The OpenXR loader AAR declares minSdk 24; Quest headsets all
+            // run API 29+ anyway.
+            minSdkVersion 29
+            externalNativeBuild {
+                cmake {
+                    arguments "-DPICASIM_QUEST=ON"
+                }
             }
         }
     }
@@ -110,4 +170,6 @@ preBuild.dependsOn generateAssetManifest
 
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
+    // Khronos OpenXR loader (AAR with prefab support) — quest flavor only
+    questImplementation 'org.khronos.openxr:openxr_loader_for_android:1.1.49'
 }

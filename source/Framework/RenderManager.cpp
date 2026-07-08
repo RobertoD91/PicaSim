@@ -19,6 +19,13 @@
 #include "Camera.h"  // For VROrientationMode
 #include "Skybox.h"  // For VR parallax skybox
 #include <glm/gtc/matrix_transform.hpp>
+#if defined(PICASIM_ANDROID) || defined(__ANDROID__)
+// Quest: the VR path uses GLES3 entry points (glBlitFramebuffer,
+// glRenderbufferStorageMultisample, GL_READ/DRAW_FRAMEBUFFER, sized internal
+// formats). GLES3/gl3.h is a superset of the GLES2 header pulled in via
+// Graphics.h.
+#include <GLES3/gl3.h>
+#endif
 #endif
 
 std::unique_ptr<RenderManager> RenderManager::mInstance;
@@ -631,7 +638,11 @@ void RenderManager::RenderUpdateVR(VRFrameInfo& frameInfo)
     glDepthMask(GL_TRUE);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glDepthFunc(GL_LESS);
+#if defined(PICASIM_ANDROID) || defined(__ANDROID__)
+    glDepthRangef(0.0f, 1.0f);  // GLES only has the float variant
+#else
     glDepthRange(0.0, 1.0);
+#endif
     glDisable(GL_SCISSOR_TEST);
     GLenum preErr = glGetError();
     if (preErr != GL_NO_ERROR)
@@ -683,7 +694,14 @@ void RenderManager::RenderUpdateVR(VRFrameInfo& frameInfo)
             // Create MSAA color renderbuffer
             glGenRenderbuffers(1, &msaaColorRB);
             glBindRenderbuffer(GL_RENDERBUFFER, msaaColorRB);
+#if defined(PICASIM_ANDROID) || defined(__ANDROID__)
+            // GLES3 requires the multisample resolve source and destination to
+            // have identical internal formats. The OpenXR runtime prefers an
+            // SRGB8_ALPHA8 swapchain (which Quest provides), so match it here.
+            glRenderbufferStorageMultisample(GL_RENDERBUFFER, msaaSamples, GL_SRGB8_ALPHA8, eyeWidth, eyeHeight);
+#else
             glRenderbufferStorageMultisample(GL_RENDERBUFFER, msaaSamples, GL_RGBA8, eyeWidth, eyeHeight);
+#endif
 
             // Create MSAA depth renderbuffer
             glGenRenderbuffers(1, &msaaDepthRB);
@@ -922,14 +940,38 @@ void RenderManager::RenderUpdateVR(VRFrameInfo& frameInfo)
             GLuint depthTexture;
             glGenTextures(1, &depthTexture);
             glBindTexture(GL_TEXTURE_2D, depthTexture);
+#if defined(PICASIM_ANDROID) || defined(__ANDROID__)
+            // GLES3: GL_DEPTH_COMPONENT24 requires type GL_UNSIGNED_INT
+            // (GL_FLOAT is only valid for GL_DEPTH_COMPONENT32F)
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, eyeWidth, eyeHeight, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, nullptr);
+#else
             glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, eyeWidth, eyeHeight, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+#endif
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
+#if defined(PICASIM_ANDROID) || defined(__ANDROID__)
+            // GLES3: glCopyTexImage2D cannot copy from a depth buffer. Attach
+            // the depth texture to a temporary FBO and blit the depth instead
+            // (formats match: both are GL_DEPTH_COMPONENT24, same rectangle).
+            {
+                GLuint depthCopyFBO;
+                glGenFramebuffers(1, &depthCopyFBO);
+                glBindFramebuffer(GL_READ_FRAMEBUFFER, swapchainFBO);
+                glBindFramebuffer(GL_DRAW_FRAMEBUFFER, depthCopyFBO);
+                glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthTexture, 0);
+                glBlitFramebuffer(0, 0, eyeWidth, eyeHeight,
+                                  0, 0, eyeWidth, eyeHeight,
+                                  GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+                glBindFramebuffer(GL_FRAMEBUFFER, swapchainFBO);
+                glDeleteFramebuffers(1, &depthCopyFBO);
+            }
+#else
             // Copy depth buffer to texture (now from resolved swapchain FBO)
             glCopyTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, 0, 0, eyeWidth, eyeHeight, 0);
+#endif
 
             // Rebind MSAA FBO for skybox and foreground rendering (preserves anti-aliasing)
             if (msaaSamples > 1)
@@ -1128,8 +1170,10 @@ void RenderManager::RenderUpdateVR(VRFrameInfo& frameInfo)
             RenderOverlaysForVREye(eyeWidth, eyeHeight, stereoPixelShift);
         }
 
+#if !defined(PICASIM_ANDROID) && !defined(__ANDROID__)
         // Copy rendered content to VRManager's mirror texture (for desktop display)
-        // We do this while the swapchain texture is still bound
+        // We do this while the swapchain texture is still bound.
+        // No desktop mirror on Quest (and the mirror textures aren't created there).
         uint32_t mirrorTex = vrManager.GetEyeColorTexture((VREye)eye);
         if (mirrorTex != 0)
         {
@@ -1151,6 +1195,7 @@ void RenderManager::RenderUpdateVR(VRFrameInfo& frameInfo)
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             glDeleteFramebuffers(1, &mirrorFBO);
         }
+#endif
 
         // Cleanup MSAA resources if used
         if (msaaSamples > 1)
@@ -1357,6 +1402,13 @@ void RenderManager::DrawVRCursor(float cursorX, float cursorY)
 //======================================================================================================================
 void RenderManager::RenderMirrorWindow(VRMirrorMode mode)
 {
+#if defined(PICASIM_ANDROID) || defined(__ANDROID__)
+    // No desktop mirror window on Quest - the SDL window surface isn't the VR
+    // display, so drawing/swapping it would be pointless (and the swap could
+    // stall the OpenXR frame loop).
+    (void)mode;
+    return;
+#else
     if (!VRManager::IsAvailable() || !VRManager::GetInstance().IsVREnabled())
     {
         return;
@@ -1523,5 +1575,6 @@ void RenderManager::RenderMirrorWindow(VRMirrorMode mode)
 
     // Swap buffers for mirror window
     IwGLSwapBuffers();
+#endif // !Android
 }
 #endif // PICASIM_VR_SUPPORT

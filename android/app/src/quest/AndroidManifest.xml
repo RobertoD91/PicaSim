@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Meta Quest manifest overlay: merged on top of src/main/AndroidManifest.xml
+    for the 'quest' product flavor only.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Quest headsets require head tracking -->
+    <uses-feature
+        android:name="android.hardware.vr.headtracking"
+        android:required="true"
+        android:version="1" />
+
+    <application>
+
+        <!-- Devices this build supports (Horizon OS store/sideload metadata) -->
+        <meta-data
+            android:name="com.oculus.supportedDevices"
+            android:value="quest2|questpro|quest3" />
+
+        <activity
+            android:name=".PicaSimActivity"
+            tools:remove="android:screenOrientation">
+
+            <!-- Intent filters are appended (not merged) by the manifest
+                 merger, so this adds a VR-category launcher entry alongside
+                 the standard one from the main manifest. -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="com.oculus.intent.category.VR" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

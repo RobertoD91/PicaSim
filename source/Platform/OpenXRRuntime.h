@@ -6,10 +6,18 @@
 #include "VRRuntime.h"
 
 // OpenXR headers
+#ifdef PICASIM_ANDROID
+#define XR_USE_GRAPHICS_API_OPENGL_ES
+#define XR_USE_PLATFORM_ANDROID
+#include <EGL/egl.h>
+#include <GLES3/gl3.h>
+#include <jni.h>
+#else
 #define XR_USE_GRAPHICS_API_OPENGL
 #ifdef _WIN32
 #define XR_USE_PLATFORM_WIN32
 #include <windows.h>
+#endif
 #endif
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
@@ -134,7 +142,11 @@ private:
         XrSwapchain swapchain;
         int width;
         int height;
+#ifdef PICASIM_ANDROID
+        std::vector<XrSwapchainImageOpenGLESKHR> images;
+#else
         std::vector<XrSwapchainImageOpenGLKHR> images;
+#endif
         uint32_t currentImageIndex;
         bool imageAcquired;
     };

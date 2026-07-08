@@ -8,7 +8,13 @@
 #include "../Framework/Graphics.h"
 #include "../Framework/Trace.h"
 
+#ifdef _WIN32
 #include <glad/glad.h>
+#elif defined(PICASIM_ANDROID) || defined(__ANDROID__)
+// Quest: GLES3 header - superset of the GLES2 declarations pulled in via
+// Graphics.h, adds the sized internal formats used below.
+#include <GLES3/gl3.h>
+#endif
 
 //======================================================================================================================
 // Static member initialization
@@ -350,6 +356,12 @@ bool VRManager::CreateEyeFramebuffers()
         return false;
     }
 
+#if defined(PICASIM_ANDROID) || defined(__ANDROID__)
+    // The eye framebuffers exist only as copy targets for the desktop mirror
+    // window. There is no desktop mirror on Quest, so skip the allocation -
+    // GetEyeColorTexture() returning 0 disables the mirror copies.
+    return true;
+#else
     for (int eye = 0; eye < VR_EYE_COUNT; ++eye)
     {
         int width, height;
@@ -395,6 +407,7 @@ bool VRManager::CreateEyeFramebuffers()
     }
 
     return true;
+#endif // !Android
 }
 
 //======================================================================================================================

@@ -28,7 +28,11 @@
 #ifdef PICASIM_VR_SUPPORT
 #include "../Platform/VRManager.h"
 #include "../Platform/VRRuntime.h"
+#if defined(PICASIM_ANDROID)
+#include <GLES3/gl3.h>
+#else
 #include <glad/glad.h>
+#endif
 #include "Menus/UIHelpers.h"
 #include <imgui.h>
 #include "imgui_impl_sdl2.h"
