@@ -586,6 +586,13 @@ SelectPlane:
                         // Message box should have been shown from the source of the error
                         continue;
                     }
+#ifdef PICASIM_QUEST
+                    // The game starts paused and the play button is on the
+                    // (currently unusable) touch HUD - start flying directly.
+                    // This also hides the VR overlay, which is only shown
+                    // while paused.
+                    PicaSim::GetInstance().SetStatus(PicaSim::STATUS_FLYING);
+#endif
                 }
 
                 int64 lastTimeMs = Timer::GetMilliseconds();
