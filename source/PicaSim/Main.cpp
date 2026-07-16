@@ -500,9 +500,13 @@ int main(int argc, char* argv[])
         if (QuestStartupWorkaroundsEnabled())
         {
         // Menu interaction on the headset needs a Bluetooth mouse for now, so
-        // skip the menus and go straight to flying with the last-used (or
-        // default) aeroplane and scenery.
-        gameSettings.mOptions.mFreeFlyOnStartup = true;
+        // skip the menus and go straight to flying. Use the same one-shot
+        // mechanism as the --fly command line option rather than setting
+        // mFreeFlyOnStartup: that option is persisted to settings.xml, and
+        // would keep skipping the menus even with the workarounds disabled.
+        cmdLineFly = true;
+        // Heal settings saved by earlier quest builds that did persist it
+        gameSettings.mOptions.mFreeFlyOnStartup = false;
         // Until the menus are usable in the headset, always start with the
         // powered trainer (wheels) in the full-3D recreation ground - the
         // same combination as the built-in powered-trainer scenario, but
