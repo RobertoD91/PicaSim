@@ -47,11 +47,19 @@ jobs:
           restore-keys: |
             gradle-
 
+      # The generated debug keystore is persisted in the Actions cache so all
+      # CI builds share one signature (it is NOT committed to the repo).
+      - name: Restore debug keystore cache
+        uses: actions/cache@v4
+        with:
+          path: android/debug.keystore
+          key: android-debug-keystore-v1
+
       # Optional custom signing: set the ANDROID_KEYSTORE_BASE64,
       # ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD
       # secrets to sign with your own key. Without them (e.g. on fork PRs,
-      # where secrets are unavailable) the build falls back to the debug
-      # keystore committed in android/.
+      # where secrets are unavailable) the build falls back to the cached
+      # generated debug keystore above.
       - name: Set up signing keystore (optional)
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -69,7 +77,15 @@ jobs:
             } >> "$GITHUB_ENV"
             echo "Signing with the custom keystore from secrets."
           else
-            echo "Signing secrets not (fully) configured - using the repo debug keystore."
+            if [ ! -f android/debug.keystore ]; then
+              keytool -genkeypair -v -keystore android/debug.keystore \
+                -storepass android -alias androiddebugkey -keypass android \
+                -keyalg RSA -keysize 2048 -validity 10950 \
+                -dname "CN=Android Debug,O=Android,C=US" > /dev/null 2>&1
+              echo "Signing secrets not configured - generated a debug keystore (persisted in the Actions cache)."
+            else
+              echo "Signing secrets not configured - using the cached debug keystore."
+            fi
           fi
 
       - name: Generate asset manifest

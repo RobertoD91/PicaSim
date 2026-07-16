@@ -42,24 +42,26 @@ android {
             keyAlias keystoreProperties['keyAlias'] ?: ''
             keyPassword keystoreProperties['keyPassword'] ?: ''
         }
-        // Debug signing, in order of preference:
+        // Debug signing, in order of preference (the goal is a STABLE debug
+        // signature, so successive builds install over each other instead of
+        // failing with INSTALL_FAILED_UPDATE_INCOMPATIBLE):
         // 1. A custom keystore provided via environment (CI secrets, see the
         //    "Set up signing keystore" workflow step): PICASIM_KEYSTORE_FILE,
         //    PICASIM_KEYSTORE_PASSWORD, PICASIM_KEY_ALIAS, PICASIM_KEY_PASSWORD.
-        // 2. Fallback: a keystore committed to the repo (standard Android
-        //    debug credentials, nothing sensitive) so that local and CI debug
-        //    builds all share one signature and can install over each other.
-        //    Without a stable key, every CI runner generates its own and adb
-        //    install fails with INSTALL_FAILED_UPDATE_INCOMPATIBLE.
+        // 2. android/debug.keystore - NOT committed (gitignored): generated
+        //    on demand by quest_docker_build.sh locally and by the CI
+        //    workflows (persisted in the Actions cache).
+        // 3. The Android default (~/.android/debug.keystore).
         debug {
             def ciKeystore = System.getenv("PICASIM_KEYSTORE_FILE")
+            def localDebugKeystore = rootProject.file("debug.keystore")
             if (ciKeystore) {
                 storeFile file(ciKeystore)
                 storePassword System.getenv("PICASIM_KEYSTORE_PASSWORD")
                 keyAlias System.getenv("PICASIM_KEY_ALIAS")
                 keyPassword System.getenv("PICASIM_KEY_PASSWORD")
-            } else {
-                storeFile rootProject.file("debug.keystore")
+            } else if (localDebugKeystore.exists()) {
+                storeFile localDebugKeystore
                 storePassword "android"
                 keyAlias "androiddebugkey"
                 keyPassword "android"

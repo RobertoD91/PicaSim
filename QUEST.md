@@ -72,13 +72,20 @@ so sideloaded builds are identifiable.
 
 ### Signing
 
-Debug builds (local and CI) are signed with `android/debug.keystore`,
-committed to the repo with the standard Android debug credentials, so every
-build shares one signature and installs over the previous one. To sign CI
-builds with your own key instead, set the repository secrets
-`ANDROID_KEYSTORE_BASE64` (the keystore file, base64), `ANDROID_KEYSTORE_PASSWORD`,
-`ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD` — with any of them missing,
-the workflows fall back to the committed keystore.
+The goal is a *stable* debug signature, so successive builds install over
+each other instead of failing with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`.
+No keystore is committed to the repo. In order of preference:
+
+1. **Your own key via secrets** (CI): set `ANDROID_KEYSTORE_BASE64` (the
+   keystore file, base64), `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`
+   and `ANDROID_KEY_PASSWORD`.
+2. **Generated keystore** (fallback): CI generates `android/debug.keystore`
+   on first run and persists it in the Actions cache under the key
+   `android-debug-keystore-v1`; locally `quest_docker_build.sh` generates the
+   same (gitignored) file once. Note the Actions cache evicts entries unused
+   for 7 days — if that happens a new key is generated and the next
+   `adb install` hits a one-time signature mismatch, which `quest_run.sh`
+   handles by uninstalling and retrying.
 
 ## Input
 
