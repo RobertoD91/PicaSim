@@ -87,6 +87,21 @@ No keystore is committed to the repo. In order of preference:
    `adb install` hits a one-time signature mismatch, which `quest_run.sh`
    handles by uninstalling and retrying.
 
+## Startup defaults
+
+The quest flavor forces a set of startup defaults so the app is usable
+without menus: skip menus (free fly), powered trainer (Jackdaw) in the 3D
+recreation ground, Xbox joystick profile, start unpaused. They can be turned
+off at runtime, without rebuilding, via an Android system property:
+
+```sh
+adb shell setprop debug.picasim.questdefaults 0   # vanilla behavior
+adb shell setprop debug.picasim.questdefaults 1   # defaults on (default)
+```
+
+Forcing VR on is not gated: without it the app renders to the invisible SDL
+surface and never leaves the system loading screen.
+
 ## Input
 
 There is no VR (Touch) controller support. Fly with an RC transmitter

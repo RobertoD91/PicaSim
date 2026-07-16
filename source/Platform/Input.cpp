@@ -348,10 +348,11 @@ void Input::ProcessEvent(const SDL_Event& event)
             if (controller)
             {
                 mGamepads.push_back(controller);
-                printf("Gamepad connected: %s\n", SDL_GameControllerName(controller));
+                SDL_Log("Gamepad connected: %s", SDL_GameControllerName(controller));
             }
         }
         break;
+
 
     case SDL_CONTROLLERDEVICEREMOVED:
         {
@@ -378,7 +379,7 @@ void Input::ProcessEvent(const SDL_Event& event)
                 if (joystick)
                 {
                     mJoysticks.push_back(joystick);
-                    printf("Joystick connected: %s (axes=%d, buttons=%d, hats=%d)\n",
+                    SDL_Log("Joystick connected: %s (axes=%d, buttons=%d, hats=%d)",
                         SDL_JoystickName(joystick),
                         SDL_JoystickNumAxes(joystick),
                         SDL_JoystickNumButtons(joystick),
@@ -604,7 +605,7 @@ bool Input::IsGamepadButtonDown(int gamepadIndex, int button) const
 void Input::OpenGamepads()
 {
     int numJoysticks = SDL_NumJoysticks();
-    printf("OpenGamepads: SDL_NumJoysticks() = %d\n", numJoysticks);
+    SDL_Log("OpenGamepads: SDL_NumJoysticks() = %d", numJoysticks);
 
     for (int i = 0; i < numJoysticks; ++i)
     {
@@ -614,8 +615,12 @@ void Input::OpenGamepads()
             if (controller)
             {
                 mGamepads.push_back(controller);
-                printf("Gamepad found: %s\n", SDL_GameControllerName(controller));
+                SDL_Log("Gamepad found: %s", SDL_GameControllerName(controller));
             }
+        }
+        else
+        {
+            SDL_Log("Joystick %d (%s) has no game-controller mapping", i, SDL_JoystickNameForIndex(i));
         }
     }
 }
@@ -635,13 +640,13 @@ void Input::OpenJoysticks()
     // Open joysticks that are NOT recognized as game controllers
     // (e.g. R/C transmitters, flight sticks, etc.)
     int numJoysticks = SDL_NumJoysticks();
-    printf("SDL_NumJoysticks() = %d\n", numJoysticks);
+    SDL_Log("SDL_NumJoysticks() = %d", numJoysticks);
 
     for (int i = 0; i < numJoysticks; ++i)
     {
         const char* name = SDL_JoystickNameForIndex(i);
         bool isGameController = SDL_IsGameController(i);
-        printf("  Device %d: '%s' - IsGameController=%s\n",
+        SDL_Log("  Device %d: '%s' - IsGameController=%s",
             i, name ? name : "(null)", isGameController ? "YES" : "NO");
 
         // Skip devices already opened as game controllers

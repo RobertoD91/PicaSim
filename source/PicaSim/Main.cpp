@@ -152,6 +152,25 @@ static bool InitialiseOptions(GameSettings& gameSettings)
 }
 
 //======================================================================================================================
+#ifdef PICASIM_QUEST
+#include <sys/system_properties.h>
+//======================================================================================================================
+// The Quest startup overrides (skip menus, default aeroplane/scenery, gamepad
+// profile, start unpaused) can be turned off at runtime without rebuilding:
+//   adb shell setprop debug.picasim.questdefaults 0
+// Forcing VR on is NOT gated: without it the app renders to the invisible
+// SDL surface and never leaves the system loading screen.
+static bool QuestStartupDefaultsEnabled()
+{
+    char value[PROP_VALUE_MAX];
+    int len = __system_property_get("debug.picasim.questdefaults", value);
+    if (len > 0 && (value[0] == '0' || value[0] == 'f' || value[0] == 'F'))
+        return false;
+    return true;
+}
+#endif
+
+//======================================================================================================================
 static bool FileExists(const std::string& path)
 {
     FILE* f = fopen(path.c_str(), "rb");
@@ -477,6 +496,8 @@ int main(int argc, char* argv[])
         // frames via VRMenuRenderer). Without this the system never receives
         // a frame and stays on the loading interstitial forever.
         gameSettings.mOptions.mEnableVR = true;
+        if (QuestStartupDefaultsEnabled())
+        {
         // Menu interaction on the headset needs a Bluetooth mouse for now, so
         // skip the menus and go straight to flying with the last-used (or
         // default) aeroplane and scenery.
@@ -503,6 +524,7 @@ int main(int argc, char* argv[])
             // axes/buttons, which modern pads all expose).
             loadResult = gameSettings.mJoystickSettings.LoadFromFile("SystemSettings/Joystick/XBox360.xml");
             IwAssert(ROWLHOUSE, loadResult);
+        }
         }
 #endif
         // Initialize VR if it was enabled in saved settings
@@ -684,7 +706,8 @@ SelectPlane:
                     // (currently unusable) touch HUD - start flying directly.
                     // This also hides the VR overlay, which is only shown
                     // while paused.
-                    PicaSim::GetInstance().SetStatus(PicaSim::STATUS_FLYING);
+                    if (QuestStartupDefaultsEnabled())
+                        PicaSim::GetInstance().SetStatus(PicaSim::STATUS_FLYING);
 #endif
                 }
 
