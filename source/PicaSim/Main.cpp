@@ -405,6 +405,12 @@ int main(int argc, char* argv[])
             IwAssert(ROWLHOUSE, loadResult);
             gameSettings.mStatistics.mLoadedAeroplane = true;
             gameSettings.mStatistics.mLoadedTerrain = true;
+            // Physical gamepad input is gated on mEnableJoystick, which is
+            // normally switched on in the settings UI. Load the Xbox profile
+            // (enables the joystick and maps the standard SDL GameController
+            // axes/buttons, which modern pads all expose).
+            loadResult = gameSettings.mJoystickSettings.LoadFromFile("SystemSettings/Joystick/XBox360.xml");
+            IwAssert(ROWLHOUSE, loadResult);
         }
 #endif
         // Initialize VR if it was enabled in saved settings
