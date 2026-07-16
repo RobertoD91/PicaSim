@@ -89,6 +89,9 @@ android {
     // to the CMake build via find_package(OpenXR CONFIG).
     buildFeatures {
         prefab true
+        // BuildConfig.FLAVOR is used by PicaSimActivity for quest-only
+        // input handling (AGP 8 no longer generates BuildConfig by default)
+        buildConfig true
     }
 
     // Product flavors: 'phone' is the regular Android build (VR off, unchanged
