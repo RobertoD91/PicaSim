@@ -155,16 +155,17 @@ static bool InitialiseOptions(GameSettings& gameSettings)
 #ifdef PICASIM_QUEST
 #include <sys/system_properties.h>
 //======================================================================================================================
-// The Quest startup overrides (skip menus, default aeroplane/scenery, gamepad
-// profile, start unpaused) can be turned off at runtime without rebuilding:
-//   adb shell setprop debug.picasim.questdefaults 0
+// The Quest startup workarounds (skip menus, default aeroplane/scenery,
+// gamepad profile, start unpaused) are enabled by default and can be turned
+// off at runtime without rebuilding:
+//   adb shell setprop debug.picasim.questdisableworkaround 1
 // Forcing VR on is NOT gated: without it the app renders to the invisible
 // SDL surface and never leaves the system loading screen.
-static bool QuestStartupDefaultsEnabled()
+static bool QuestStartupWorkaroundsEnabled()
 {
     char value[PROP_VALUE_MAX];
-    int len = __system_property_get("debug.picasim.questdefaults", value);
-    if (len > 0 && (value[0] == '0' || value[0] == 'f' || value[0] == 'F'))
+    int len = __system_property_get("debug.picasim.questdisableworkaround", value);
+    if (len > 0 && (value[0] == '1' || value[0] == 't' || value[0] == 'T'))
         return false;
     return true;
 }
@@ -496,7 +497,7 @@ int main(int argc, char* argv[])
         // frames via VRMenuRenderer). Without this the system never receives
         // a frame and stays on the loading interstitial forever.
         gameSettings.mOptions.mEnableVR = true;
-        if (QuestStartupDefaultsEnabled())
+        if (QuestStartupWorkaroundsEnabled())
         {
         // Menu interaction on the headset needs a Bluetooth mouse for now, so
         // skip the menus and go straight to flying with the last-used (or
@@ -706,7 +707,7 @@ SelectPlane:
                     // (currently unusable) touch HUD - start flying directly.
                     // This also hides the VR overlay, which is only shown
                     // while paused.
-                    if (QuestStartupDefaultsEnabled())
+                    if (QuestStartupWorkaroundsEnabled())
                         PicaSim::GetInstance().SetStatus(PicaSim::STATUS_FLYING);
 #endif
                 }

@@ -89,14 +89,15 @@ No keystore is committed to the repo. In order of preference:
 
 ## Startup defaults
 
-The quest flavor forces a set of startup defaults so the app is usable
+The quest flavor forces a set of startup workarounds so the app is usable
 without menus: skip menus (free fly), powered trainer (Jackdaw) in the 3D
-recreation ground, Xbox joystick profile, start unpaused. They can be turned
-off at runtime, without rebuilding, via an Android system property:
+recreation ground, Xbox joystick profile, start unpaused. They are enabled
+by default and can be turned off at runtime, without rebuilding, via an
+Android system property:
 
 ```sh
-adb shell setprop debug.picasim.questdefaults 0   # vanilla behavior
-adb shell setprop debug.picasim.questdefaults 1   # defaults on (default)
+adb shell setprop debug.picasim.questdisableworkaround 1   # vanilla behavior
+adb shell setprop debug.picasim.questdisableworkaround 0   # workarounds on (default)
 ```
 
 Forcing VR on is not gated: without it the app renders to the invisible SDL
