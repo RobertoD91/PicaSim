@@ -10,7 +10,13 @@
 #include "../Framework/ShaderManager.h"
 #include "../Framework/Shaders.h"
 
+#ifdef _WIN32
 #include <glad/glad.h>
+#elif defined(PICASIM_ANDROID) || defined(__ANDROID__)
+// Quest: GLES3 header - superset of the GLES2 declarations pulled in via
+// Graphics.h, adds glBlitFramebuffer and the sized internal formats used below.
+#include <GLES3/gl3.h>
+#endif
 #include <SDL.h>
 #include "imgui.h"
 
@@ -302,7 +308,11 @@ void VRMenuRenderer::EndMenuFrame(float uiScale, float overlayDistance)
         }
     }
 
-    // Blit menu FBO to the desktop window for mirror display
+#if !defined(PICASIM_ANDROID) && !defined(__ANDROID__)
+    // Blit menu FBO to the desktop window for mirror display.
+    // No desktop mirror on Quest - the SDL window surface isn't the VR
+    // display, so skip the blit and the swap there (frame pacing comes from
+    // the OpenXR frame loop above).
     Window& window = Window::GetInstance();
     int winWidth = window.GetWidth();
     int winHeight = window.GetHeight();
@@ -315,6 +325,7 @@ void VRMenuRenderer::EndMenuFrame(float uiScale, float overlayDistance)
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     IwGxSwapBuffers();
+#endif
 
     // Reset so the OS cursor reappears on desktop after the menu loop exits.
     // During the menu loop, BeginMenuFrame() sets this to true each frame.

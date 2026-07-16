@@ -7,7 +7,13 @@
 #ifdef _WIN32
 #include <glad/glad.h>
 #elif defined(PICASIM_ANDROID) || defined(__ANDROID__)
+#if defined(PICASIM_QUEST)
+// Quest: OpenGL ES 3.0 - a superset of the ES2 API used by the rest of the
+// engine. The VR path needs ES3 entry points (glBlitFramebuffer etc.).
+#include <GLES3/gl3.h>
+#else
 #include <GLES2/gl2.h>
+#endif
 #elif defined(PICASIM_IOS)
 #include <OpenGLES/ES2/gl.h>
 #elif defined(PICASIM_MACOS)
@@ -78,7 +84,14 @@ bool Window::Init(int width, int height, const char* title, bool fullscreen, int
 
     // Set OpenGL attributes before creating window
     // Request OpenGL 3.3 Core Profile for desktop, but fall back to 2.1 if needed
-#if defined(PS_PLATFORM_ANDROID) || defined(PS_PLATFORM_IOS)
+#if defined(PS_PLATFORM_ANDROID) && defined(PICASIM_QUEST)
+    // Quest: OpenGL ES 3.0 (needed for the VR render path - glBlitFramebuffer,
+    // glRenderbufferStorageMultisample, sized internal formats). ES3 is
+    // backward compatible with the ES2 usage in the rest of the engine.
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+#elif defined(PS_PLATFORM_ANDROID) || defined(PS_PLATFORM_IOS)
     // Mobile: OpenGL ES 2.0
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);

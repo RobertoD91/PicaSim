@@ -74,9 +74,23 @@ if(NOT EXISTS ${CMAKE_SOURCE_DIR}/third_party/SDL2/CMakeLists.txt)
 endif()
 
 # --- Platform-specific build options ---
+
+# Meta Quest flavor: Android build with OpenXR VR support (set by the 'quest'
+# Gradle product flavor via -DPICASIM_QUEST=ON).
+option(PICASIM_QUEST "Build the Meta Quest (Android + OpenXR) flavor" OFF)
+
 if(ANDROID)
-    # Force VR off on Android
-    set(PICASIM_ENABLE_VR OFF CACHE BOOL "" FORCE)
+    if(PICASIM_QUEST)
+        # Quest: enable VR via the OpenXR loader AAR (org.khronos.openxr),
+        # exposed to CMake through Gradle's prefab support.
+        set(PICASIM_ENABLE_VR ON CACHE BOOL "" FORCE)
+        find_package(OpenXR CONFIG REQUIRED)
+        add_compile_definitions(PICASIM_VR_SUPPORT=1 PICASIM_QUEST=1)
+        message(STATUS "Meta Quest build: VR support ENABLED (OpenXR via prefab)")
+    else()
+        # Force VR off on non-Quest Android (phones/tablets)
+        set(PICASIM_ENABLE_VR OFF CACHE BOOL "" FORCE)
+    endif()
 
     # 16KB page size alignment required for Android 15+ (API 35)
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384")
@@ -254,6 +268,9 @@ target_link_libraries(Framework PUBLIC
 )
 if(ANDROID)
     target_link_libraries(Framework PUBLIC GLESv2)
+    if(PICASIM_QUEST)
+        target_link_libraries(Framework PUBLIC GLESv3)
+    endif()
 elseif(IOS)
     # OpenGLES framework linked via PicaSim target (iOS frameworks need to be on the app)
 else()
@@ -307,6 +324,9 @@ target_link_libraries(Platform PUBLIC
 )
 if(ANDROID)
     target_link_libraries(Platform PUBLIC GLESv2 EGL log android)
+    if(PICASIM_QUEST)
+        target_link_libraries(Platform PUBLIC GLESv3 OpenXR::openxr_loader)
+    endif()
 elseif(IOS)
     # OpenGLES and system frameworks linked via PicaSim target
 else()
@@ -416,6 +436,9 @@ target_link_libraries(PicaSim PRIVATE
 )
 if(ANDROID)
     target_link_libraries(PicaSim PRIVATE SDL2main GLESv2 EGL log android)
+    if(PICASIM_QUEST)
+        target_link_libraries(PicaSim PRIVATE GLESv3 OpenXR::openxr_loader)
+    endif()
 elseif(IOS)
     target_link_libraries(PicaSim PRIVATE SDL2main)
     target_link_libraries(PicaSim PRIVATE

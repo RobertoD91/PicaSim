@@ -471,6 +471,40 @@ int main(int argc, char* argv[])
         ShaderManager::Init(initialLoadingScreen);
 
 #ifdef PICASIM_VR_SUPPORT
+#ifdef PICASIM_QUEST
+        // On Quest the SDL window is invisible: the app only exists in VR, so
+        // the XR session must be up before the menus render (they submit VR
+        // frames via VRMenuRenderer). Without this the system never receives
+        // a frame and stays on the loading interstitial forever.
+        gameSettings.mOptions.mEnableVR = true;
+        // Menu interaction on the headset needs a Bluetooth mouse for now, so
+        // skip the menus and go straight to flying with the last-used (or
+        // default) aeroplane and scenery.
+        gameSettings.mOptions.mFreeFlyOnStartup = true;
+        // Until the menus are usable in the headset, always start with the
+        // powered trainer (wheels) in the full-3D recreation ground - the
+        // same combination as the built-in powered-trainer scenario, but
+        // with the 3D environment instead of the panoramic one.
+        {
+            bool loadResult = gameSettings.mAeroplaneSettings.LoadFromFile("SystemSettings/Aeroplane/Jackdaw.xml");
+            IwAssert(ROWLHOUSE, loadResult);
+            loadResult = gameSettings.mControllerSettings.LoadFromFile("SystemSettings/Controller/TwoSticksWithThrottle.xml");
+            IwAssert(ROWLHOUSE, loadResult);
+            loadResult = gameSettings.mEnvironmentSettings.LoadFromFile("SystemSettings/Environment/RecreationGround3D.xml");
+            IwAssert(ROWLHOUSE, loadResult);
+            gameSettings.mEnvironmentSettings.mThermalDensity = 0.0f;
+            loadResult = gameSettings.mObjectsSettings.LoadFromFile(gameSettings.mEnvironmentSettings.mObjectsSettingsFile);
+            IwAssert(ROWLHOUSE, loadResult);
+            gameSettings.mStatistics.mLoadedAeroplane = true;
+            gameSettings.mStatistics.mLoadedTerrain = true;
+            // Physical gamepad input is gated on mEnableJoystick, which is
+            // normally switched on in the settings UI. Load the Xbox profile
+            // (enables the joystick and maps the standard SDL GameController
+            // axes/buttons, which modern pads all expose).
+            loadResult = gameSettings.mJoystickSettings.LoadFromFile("SystemSettings/Joystick/XBox360.xml");
+            IwAssert(ROWLHOUSE, loadResult);
+        }
+#endif
         // Initialize VR if it was enabled in saved settings
         if (VRManager::IsAvailable() && gameSettings.mOptions.mEnableVR)
         {
@@ -645,6 +679,13 @@ SelectPlane:
                         // Message box should have been shown from the source of the error
                         continue;
                     }
+#ifdef PICASIM_QUEST
+                    // The game starts paused and the play button is on the
+                    // (currently unusable) touch HUD - start flying directly.
+                    // This also hides the VR overlay, which is only shown
+                    // while paused.
+                    PicaSim::GetInstance().SetStatus(PicaSim::STATUS_FLYING);
+#endif
                 }
 
                 int64 lastTimeMs = Timer::GetMilliseconds();
