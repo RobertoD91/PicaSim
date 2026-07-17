@@ -58,6 +58,10 @@ def generate_manifest(data_dir, output_file, excludes_file=None):
             # Skip directories that shouldn't be in the APK
             dirs[:] = [d for d in dirs if d not in ('UserData', 'UserSettings', '.git')]
             for filename in sorted(files):
+                # Skip hidden/OS junk (.DS_Store etc.): aapt drops them from
+                # the APK, so listing them makes extraction report failures
+                if filename.startswith('.'):
+                    continue
                 filepath = os.path.join(root, filename)
                 relpath = os.path.relpath(filepath, data_dir)
                 # Normalize to forward slashes

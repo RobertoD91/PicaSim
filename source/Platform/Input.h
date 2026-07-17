@@ -177,6 +177,13 @@ public:
     // Get gamepad axis value (-1 to 1)
     float GetGamepadAxis(int gamepadIndex, int axis) const;
 
+    /// Index of the gamepad that most likely is a real, physical controller:
+    /// the first one whose controller type SDL recognizes (Xbox/PS/Switch...).
+    /// Headsets like the Quest expose internal input devices as generic
+    /// gamepads, which can enumerate before the physical pad. Returns 0 if
+    /// nothing better is found.
+    int GetPreferredGamepadIndex() const;
+
     // Get gamepad button state
     bool IsGamepadButtonDown(int gamepadIndex, int button) const;
 

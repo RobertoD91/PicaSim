@@ -529,6 +529,11 @@ int main(int argc, char* argv[])
             // axes/buttons, which modern pads all expose).
             loadResult = gameSettings.mJoystickSettings.LoadFromFile("SystemSettings/Joystick/XBox360.xml");
             IwAssert(ROWLHOUSE, loadResult);
+            // The Quest exposes internal input devices as generic gamepads,
+            // and their enumeration order changes between boots - so index 0
+            // (the default mJoystickID) is only sometimes the physical pad.
+            // Pick the first gamepad SDL recognizes as a real controller.
+            gameSettings.mOptions.mJoystickID = Input::GetInstance().GetPreferredGamepadIndex();
         }
         }
 #endif

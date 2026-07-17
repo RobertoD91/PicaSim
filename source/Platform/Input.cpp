@@ -344,6 +344,22 @@ void Input::ProcessEvent(const SDL_Event& event)
 
     case SDL_CONTROLLERDEVICEADDED:
         {
+            // SDL also raises this event for devices that were already open
+            // when the subsystem initialized (OpenGamepads) - don't add them
+            // twice, or the gamepad indices shift.
+            SDL_JoystickID newInstanceID = SDL_JoystickGetDeviceInstanceID(event.cdevice.which);
+            bool alreadyOpen = false;
+            for (SDL_GameController* pad : mGamepads)
+            {
+                if (pad && SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad)) == newInstanceID)
+                {
+                    alreadyOpen = true;
+                    break;
+                }
+            }
+            if (alreadyOpen)
+                break;
+
             SDL_GameController* controller = SDL_GameControllerOpen(event.cdevice.which);
             if (controller)
             {
@@ -375,6 +391,20 @@ void Input::ProcessEvent(const SDL_Event& event)
             // Only handle if NOT a game controller (those are handled above)
             if (!SDL_IsGameController(deviceIndex))
             {
+                // Same dedupe as gamepads: init-time devices raise this too
+                SDL_JoystickID newInstanceID = SDL_JoystickGetDeviceInstanceID(deviceIndex);
+                bool alreadyOpen = false;
+                for (SDL_Joystick* joy : mJoysticks)
+                {
+                    if (joy && SDL_JoystickInstanceID(joy) == newInstanceID)
+                    {
+                        alreadyOpen = true;
+                        break;
+                    }
+                }
+                if (alreadyOpen)
+                    break;
+
                 SDL_Joystick* joystick = SDL_JoystickOpen(deviceIndex);
                 if (joystick)
                 {
@@ -581,6 +611,22 @@ int Input::GetGamepadCount() const
 bool Input::IsGamepadConnected(int index) const
 {
     return index >= 0 && index < (int)mGamepads.size() && mGamepads[index] != nullptr;
+}
+
+int Input::GetPreferredGamepadIndex() const
+{
+    for (size_t i = 0; i != mGamepads.size(); ++i)
+    {
+        if (!mGamepads[i])
+            continue;
+        SDL_GameControllerType type = SDL_GameControllerGetType(mGamepads[i]);
+        if (type != SDL_CONTROLLER_TYPE_UNKNOWN && type != SDL_CONTROLLER_TYPE_VIRTUAL)
+        {
+            SDL_Log("Preferred gamepad: index %d (%s)", (int)i, SDL_GameControllerName(mGamepads[i]));
+            return (int)i;
+        }
+    }
+    return 0;
 }
 
 float Input::GetGamepadAxis(int gamepadIndex, int axis) const
