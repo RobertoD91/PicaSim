@@ -117,7 +117,7 @@
       "generator": "Xcode",
       "cacheVariables": {
         "CMAKE_SYSTEM_NAME": "iOS",
-        "CMAKE_OSX_DEPLOYMENT_TARGET": "12.0",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "15.0",
         "CMAKE_OSX_ARCHITECTURES": "arm64",
         "PICASIM_ENABLE_VR": "OFF"
       },
@@ -135,7 +135,7 @@
       "generator": "Xcode",
       "cacheVariables": {
         "CMAKE_SYSTEM_NAME": "iOS",
-        "CMAKE_OSX_DEPLOYMENT_TARGET": "12.0",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "15.0",
         "CMAKE_OSX_ARCHITECTURES": "arm64;x86_64",
         "CMAKE_OSX_SYSROOT": "iphonesimulator",
         "PICASIM_ENABLE_VR": "OFF"

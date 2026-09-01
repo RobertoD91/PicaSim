@@ -152,7 +152,7 @@ All configuration uses XML parsed via tinyxml (`source/tinyxml/`).
 
 - **OpenGL ES 2.0** with GLSL 1.00
 - At startup, `Main.cpp` does `chdir(GetBasePath() + "data")` so all relative paths work without per-file resolution
-- `std::filesystem` is **not available** on iOS 12 (requires iOS 13+) — use `<dirent.h>` + `<sys/stat.h>` instead
+- Directory scanning uses `<dirent.h>` + `<sys/stat.h>` (written when the deployment target was iOS 12, which lacked `std::filesystem`; the target is now 15.0 — App Store requirement — but the dirent code is kept as-is)
 - GLES2 requires `GL_CLAMP_TO_EDGE` for non-power-of-two (NPOT) textures (otherwise they render black)
 - UI scaling uses pixel-based formula (`height / 720.0f`), not the Android DPI-aware formula
 - SDL2 on iOS uses a non-zero default framebuffer — `FrameBufferObject` saves/restores `GL_FRAMEBUFFER_BINDING`
@@ -244,10 +244,10 @@ All five platform ports (Windows, Linux, Android, macOS, iOS) are **functional**
 - Supported ABIs: arm64-v8a, x86_64
 
 **iOS**
-- CMake preset `ios-device` (Xcode generator, arm64, deployment target 12.0)
+- CMake preset `ios-device` (Xcode generator, arm64, deployment target 15.0)
 - GLES2 rendering with NPOT texture handling
 - `chdir` to bundle `data/` directory at startup for path resolution
-- `dirent`-based directory scanning (no std::filesystem on iOS 12)
+- `dirent`-based directory scanning (predates the iOS 15 deployment target)
 - Pixel-based UI scaling
 - App icons, LaunchScreen, PrivacyInfo.xcprivacy in `ios/`
 
